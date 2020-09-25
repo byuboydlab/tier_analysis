@@ -1,0 +1,32 @@
+docx paper
+Fig. A1 -- How many singleton clusters? More to the point, what is the distribution of cluster sizes? Is there a giant component?
+Fig. B2 -- What does this look like when we use log eigenvector centrality? This is sometimes more informative visually
+
+3 -- What eigenvector is this? Do we account for the directed structure somehow?
+  -- Consider upgrading Louvain to Leiden
+6 -- at the firm level, isn't there much more fragmentation without China?
+  -- "simulations" is not the right word probably. Try "computations".
+  -- Why car manufacturers?
+7 -- Are all these clustering results robust to random seeds in the Louvain algorithm? We should assess significance if possible.
+  -- Is there real clustering structure? Use a permutation test.
+8 -- Last claim in section 4 is strong
+
+Which types of supply/value chain relationships are included?
+
+I should go through and make sure that the claims/interpretations of the clustering/centrality results are reasonable.
+
+TODO: Show one of these figures to the group for group meeting today
+
+pdf paper
+TODO -- make sure we are using multiple comparisons correction in all claims of significance
+TODO -- look carefully at how good our sampling procedure is
+TODO -- What is really the right centrality score?
+TODO -- Maybe we should look at variance of centrallity under random firm deletion, random country deletion, or random international trade disruption
+
+Trophic network centrality
+Participation coefficient, hub scores (betweenness centrality)
+
+Are there any hyper-edges here?
+Can we get dynamic data?
+
+multi-tier as a math construct

@@ -1,0 +1,14 @@
+--compute
+EC2
+batch -- no charge
+lambda
+
+--learn
+sagemaker
+inferentia
+ground truth
+
+--HPC
+spot
+auto scaling
+EBS

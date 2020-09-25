@@ -1,0 +1,25 @@
+Hi Kayvan,
+
+Some initial questions we could think about asking the data:
+
+1) How many connected components are there under certain types of deletion?
+2) How many Tier one nodes have at least one path back to Tier 4/5 under certain types of deletion?
+
+Types of deletion to consider:
+1) Delete China, Italy, and possibly other impacted countries.
+2) Delete all links between China and the US, China and Canada, and other country pairs that have had disagreements over the virus handling
+3) Delete random edges with a certain probability
+
+Types of tier 1 nodes to specialize to in question 2:
+1) All firms
+2) US firms
+3) Chinese firms
+4) Canadian firms
+
+Later on, we could figure out equilibration speeds and how they are affected by the deletion of China, etc., but these simplest things would be good to get to first.
+
+If we get the chance to share the data, I will see if I get a chance to look at it. I will also happily read grant calls you know about and see what we might apply for.
+
+Best,
+
+Zach

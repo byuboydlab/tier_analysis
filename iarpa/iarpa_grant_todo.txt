@@ -1,0 +1,144 @@
+Todo:
+Figure out if we want to include anyone else in the proposal?
+7 -- what are UARCs? Am I at one?
+
+Volume 1 - Technical and Management Proposal
+	Cover sheet (I pasted in the template)
+	Transmittal letter
+		Introduction of team
+		BAA number
+		our program name
+		proposal validity period (120 days)
+		type of contract vehicle being requested (FFP = Firm Fixed Price) with a short rationale
+		any non-negotiable conditions on which the offer is based (such as contract type
+		points of contact information (technical and administrative)
+			name
+			email
+			phone number
+	Proposal (at most 8 pages)
+		Proposal Overview
+			Technical Overview
+				main objective
+				key innovations
+				expected impact
+				other unique aspects
+				paragraph on the relevance to 
+					Intelligence Community mission
+					COVID-19 pandemic,
+				timeframe for implementation of results 
+				key technical challenges
+				technologies proposed to overcome these challenges
+				novelty and uniqueness of the proposed work 
+				What is the proposed work attempting to accomplish or do? 
+				How is it done today, and what are the limitations? 
+				Who or what will be affected and what will be the impact if the work is successful?
+			Summary of products, transferable tech., and deliverables
+			Schedule and milestones
+				Table of schedule and milestones
+			Related research
+				comparing against competitive approaches
+			Project contributors
+				clearly defined organizational chart 
+					with affillitations
+					organized under functional roles
+					task number responsibilities
+				summary of expertise of the proposed team
+				Identify a PI
+			Facilities
+				facilities and resources that will be used
+				computational and experimental resources
+			Resource Share
+				type of support, if any, requested from the Government
+				any resources we are willing to provide at no additional cost to the Government
+				other parties receiving the proposal and/or funding the effort (if none, so state)
+		Statement of Work
+			detailed, clearly defined plan for the technical tasks/subtasks, by phase
+				For each task/subtask:
+					durations 
+					A general description of the objective;
+					Approach to be taken in enough detail to determine feasability
+					primary organization responsible for task execution
+					exit criteria
+				dependencies among tasks/subtasks
+			Identification of all deliverables (e.g. reports, software)
+		Attachments (not included in page count)
+			1. Academic Institution acknowledgement letter (see template) -- needs to be trom a university official
+			2. IP rights (at most 2 pages) (see template)
+			3. OCI (conflict of interest) (see template)
+			4. Bibliography: brief, relevant technical papers which document the technical ideas on which the proposal is based
+			5. Human use statement (IRB, etc.) (see template)
+			6. NA
+			7. Powerpoint slide (see Appendix A in BAA)
+				seedling concept
+				expected impact
+				seedling innovations 
+				expected deliverables
+				other unique aspects of the proposal
+Volume 2 – Cost/Price Proposal (No page limit)
+	Cost Element Breakdown and Total Cost Summary
+		Excel document, following template
+		Use formulas, not hard-coding
+		Base + option period = total cost
+		Completed cost element breakdown for the base period, option period and the total project summary in the format provided
+		Total costs broken down by major task.
+	Narrative Supporting Information
+		supporting cost and pricing information shall be provided substantiate the cost estimates. 
+		basis of estimate in a narrative for each cost element
+			provide supporting documentation, as applicable
+		Direct Labor
+			basis of the proposed labor categories and rates
+			provide a copy of the most recent Forward Pricing Rate Agreement (FPRA) with the Government
+			is there any uncompensated overtime
+		Labor Escalation Factor
+			State the proposed escalation rate
+			basis for that rate
+			sample calculation demonstrating application of the factor to direct labor
+		Subcontracts
+			full subcontractor proposals
+			Subcontractor cost element sheets
+				base period
+				option period
+				total summary
+				same format required for the prime contractor
+			Consultant letter(s) of commitment
+			justification for why the subcontractor was selected
+			determination that the cost/price is fair and reasonable (Reference FAR Part 44 and FAR clause 52.244-2)
+		Materials and Equipment
+			quotes, bill of materials, historical data or any other information including Offeror’s analysis to support proposed costs
+		Travel
+			destination
+			purpose of the trip
+			number of trips
+			number of travelers
+			days per trip
+			price per traveler
+			Limited travel is anticipated. 
+			may require travel to meet with team members
+			not required to travel to meet with IARPA
+			travel costs shall comply with FAR Part 31.
+			Conference travel will not be authorized
+		Other Direct Costs (ODCs)
+			listed separately
+			supported by quotes, historical data or any other information including the Offeror’s analysis.
+		Indirect Costs
+			indirect cost calculations
+			identify the proposed indirect rate by fiscal year and period (base, option)
+			provide information on indirect cost pools and allocation bases for each year and program period. 
+			If a Government agency recently audited the Offeror’s indirect rates, the Offeror shall identify 
+				the agency
+				when the rates were approved
+				period for which they are effective
+				copy of this rate agreement
+			Absent current Government rate recommendations, it is incumbent on the Offeror to provide some other means of demonstrating indirect rate realism (e.g., 3 years of historical actual costs with applicable pools and bases)
+		Cost sharing
+			source
+			nature
+			amount of cost-sharing, if any
+		Other Pricing Assumptions
+		Facilities Capital Cost of Money (FCCM)
+			If proposing FCCM, the Offeror shall show FCCM cost calculations, identify the proposed FCCM factors by contractor fiscal year and program year and provide a copy of the Forward Price Rate Agreement (FPRA), Forward Price Rate System (FPRS) or Forward Pricing Rate Recommendation (FPRR), if available.
+		Profit/Fee
+			proposed profit or fee percentage
+			profit/fee base
+			justification
+		Systems -- (I think this does not apply since we are not proposing a cost reimbursement contract)

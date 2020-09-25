@@ -1,0 +1,2 @@
+I found duplicate edges. I assume this is an artifact of the way the data was gathered rather than reflecting something about the actual supply chain, right?
+Do the directions give the flow of goods? --> Yes! The distributors have outdegree 0
