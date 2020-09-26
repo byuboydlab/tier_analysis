@@ -19,7 +19,7 @@ def get_firm_df():
 
     firm_df = pd.DataFrame(dict(ID=df['Source'],name=df['Source NAME'],industry=df['Source Industry'],country=df['Source Country']))
     firm_df = firm_df.append(pd.DataFrame(dict(ID=df['Target'],name=df['Target NAME'],industry=df['Target Industry'],country=df['Target Country'])))
-    firm_df = firm_df.drop_duplicates()
+    firm_df = firm_df.drop_duplicates() # does this always keep the first on? wondering about an index error
     firm_df = firm_df.set_index('ID')
 
     return firm_df
@@ -29,8 +29,8 @@ def get_edge_df():
     return df[['Source','Target','Tier']]
 
 def edges():
-    df=get_df()
-    e,_ = pd.factorize(df.Source.append(df.Target,ignore_index=True))
+    df=get_edge_df()
+    e,i = pd.factorize(df.Source.append(df.Target,ignore_index=True)) # not guaranteed to respect order of appearance, but it does in practice
     
     m = e.size//2
     
@@ -38,10 +38,10 @@ def edges():
     ee[:,0]=e[:m]
     ee[:,1]=e[m:]
     e=ee
-    return e
+    return e,i
 
 def undirected_igraph(e=None,giant=True):
-    if e is None: e=edges() # can't have this as a default argument, since these are evaluated at import time, and it is time consuming
+    if e is None: e,_=edges() # can't have this as a default argument, since these are evaluated at import time, and it is time consuming
     N = np.max(e)+1
     G=ig.Graph(N)
     G.add_edges(list(e))
@@ -65,21 +65,19 @@ def k_core(G,k=1,fname="k_core.gml"):
     save(G,fname)
     return G, core_ind
 
-def save(G,fname='graph.gml'):
-    G.write_gml(fname)
+def directed_igraph(giant=False):
 
-def directed_igraph(e=None,giant=False):
-    # create as undirected, simple graph
-    if e is None: e=edges() # can't have this as a default argument, since these are evaluated at import time, and it is time consuming
-    G=ig.Graph(np.max(e)+1,directed=True)
-    G.add_edges(list(e))
-    G.es['tier'] = get_edge_df().Tier
-    G.simplify(loops=False, combine_edges='min') # only keep the smaller tier value
-    firm_df=get_firm_df()
-    G.vs['name']=firm_df['name']
+    firm_df = get_firm_df()
+    edge_df = get_edge_df()
+    G = ig.Graph(directed=True)
+    G.add_vertices(firm_df.index)
+    G.vs['firm name']=firm_df['name']
     G.vs['industry']=firm_df['industry']
     G.vs['country']=firm_df['country']
     G.vs['id'] = list(range(G.vcount())) # helps when passing to subgraphs
+    G.add_edges(edge_df[['Source','Target']].itertuples(index=False))
+    G.es['tier'] = edge_df.Tier
+    #G.simplify(loops=False, combine_edges='min') # use min to keep smaller tier value. probably unnecessary
 
     if giant:
         G=G.components().giant()
@@ -152,11 +150,12 @@ def random_failure_reachability(G,rho=np.arange(0,1,.1)):
     per_avg = []
     for r in rho:
         print(r)
-        G_thin = random_thinning(G,r)
-        u = [get_u(i.index,G_thin) for i in med_suppliers]
         reachable = []
         all_reachable = []
         per_reachable = []
+
+        G_thin = random_thinning(G,r)
+        u = [get_u(i.index,G_thin) for i in med_suppliers]
         for j in range(len(med_suppliers)):
             i = med_suppliers[j]
             #print(len(reachable)/len(med_suppliers))
@@ -265,3 +264,7 @@ def close_all_borders(G):
         print("Percent of medical supply firms in " + str(c) + ' cut off from some terminal suppliers: ' + str(1-np.mean(l)))
 
     return avg,avg_all,avg_per
+
+#TODO add error bars on the random reachability plot
+#TODO neglect the regime where more than half of firms fail
+#TODO find a way to validate these results!!!!! I want to be confident
