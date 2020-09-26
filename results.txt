@@ -1,0 +1,11 @@
+Random failures test
+
+Removing all US-China supply chain links
+Percent of edges deleted: 0.01789167294266114
+Percent of medical supply firms cut off from all terminal suppliers: 0.0046511627906976605
+Percent of medical supply firms cut off from some terminal suppliers: 0.0046511627906976605
+Percent of US medical supply firms cut off from all terminal suppliers: 0.0046511627906976605
+Percent of Chinese medical supply firms cut off from all terminal suppliers: 0.1428571428571429
+Percent of US medical supply firms cut off from some terminal suppliers: 0.0046511627906976605
+Percent of Chinese medical supply firms cut off from some terminal suppliers: 0.1428571428571429
+
