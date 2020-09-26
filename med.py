@@ -131,6 +131,12 @@ def all_terminal_suppliers_reachable(i,G,G_thin,t=None,u=None):
         return True
     return False
 
+def percent_terminal_suppliers_reachable(i,G,G_thin,t=None,u=None):
+    if t is None: t = get_terminal_suppliers(i,G)
+    if u is None: u = get_u(i,G_thin)
+
+    return len(set(t) & set(u))/len(set(t))
+
 def random_thinning(G,rho):
     return G.induced_subgraph((np.random.random(G.vcount()) <= rho).nonzero()[0].tolist())
 
@@ -143,34 +149,40 @@ def random_failure_reachability(G,rho=np.arange(0,1,.1)):
 
     avg = []
     all_avg = []
+    per_avg = []
     for r in rho:
         print(r)
         G_thin = random_thinning(G,r)
         u = [get_u(i.index,G_thin) for i in med_suppliers]
         reachable = []
         all_reachable = []
+        per_reachable = []
         for j in range(len(med_suppliers)):
             i = med_suppliers[j]
             #print(len(reachable)/len(med_suppliers))
             if u[j]:
                 reachable.append(some_terminal_suppliers_reachable(i.index,G,G_thin,t[j],u[j]))
                 all_reachable.append(all_terminal_suppliers_reachable(i.index,G,G_thin,t[j],u[j]))
+                per_reachable.append(percent_terminal_suppliers_reachable(i.index,G,G_thin,t[j],u[j]))
             else:
                 reachable.append(False)
                 all_reachable.append(False)
+                per_reachable.append(0)
         avg.append(np.mean(reachable))
         all_avg.append(np.mean(all_reachable))
+        per_avg.append(np.mean(per_reachable))
 
     import matplotlib.pyplot as plt
     plt.scatter(rho,avg)
     plt.scatter(rho,all_avg)
+    plt.scatter(rho,per_avg)
     plt.plot(rho,rho)
     plt.xlabel("Percent of remaining firms")
     plt.ylabel("Percent of medical supply firms")
     plt.title("Medical supply chain resilience under random firm failure")
-    plt.legend(['Expected firms remaining', 'Some end suppliers accessible','All end suppliers accessible'])
+    plt.legend(['Expected firms remaining', 'Some end suppliers accessible','All end suppliers accessible','Avg. percent end suppliers reachable'])
 
-    return (avg,all_avg)
+    return (avg,all_avg,per_avg)
 
 def no_china_us_reachability(G):
     print("Removing all US-China supply chain links")
@@ -224,6 +236,7 @@ def close_all_borders(G):
 
     reachable = []
     reachable_all = []
+    reachable_per = []
     country_reachability = {s['country']:[] for s in set(med_suppliers)}
     country_reachability_all = {s['country']:[] for s in set(med_suppliers)}
     for i in med_suppliers:
@@ -235,10 +248,15 @@ def close_all_borders(G):
         a = all_terminal_suppliers_reachable(i.index,G,G_thin)
         reachable_all.append(all_terminal_suppliers_reachable(i.index,G,G_thin))
         country_reachability_all[i['country']].append(a)
+
+        p = percent_terminal_suppliers_reachable(i.index,G,G_thin)
+        reachable_per.append(p)
     avg = np.mean(reachable)
     avg_all = np.mean(reachable_all)
+    avg_per = np.mean(reachable_per)
     print("Percent of medical supply firms cut off from all terminal suppliers: " + str(1-avg))
     print("Percent of medical supply firms cut off from some terminal suppliers: " + str(1-avg_all))
+    print("Avg. percent of terminal suppliers reachable by medical supply firms: " + str(1-avg_per))
 
     import math
     for c,l in country_reachability.items():
@@ -246,8 +264,4 @@ def close_all_borders(G):
     for c,l in country_reachability_all.items():
         print("Percent of medical supply firms in " + str(c) + ' cut off from some terminal suppliers: ' + str(1-np.mean(l)))
 
-    
-
-    return avg,avg_all
-
-# TODO: percent of terminal suppliers unreachable
+    return avg,avg_all,avg_per
