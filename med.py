@@ -213,45 +213,41 @@ def no_china_us_reachability(G):
 
     return avg,avg_all
 
-def close_all_borders:
-    print("Removing all US-China supply chain links")
+def close_all_borders(G):
+    print("Removing all international supply chain links")
     from copy import deepcopy
     G_thin = deepcopy(G)
-    G_thin.delete_edges(G_thin.es.select(_between = [G_thin.vs(country = 'United States'), G_thin.vs(country='China')]))
+    G_thin.delete_edges(G_thin.es.select(lambda e : e.source_vertex['country'] != e.target_vertex['country']))
     print("Percent of edges deleted: " + str(1-G_thin.ecount()/G.ecount()))
 
-    reachable = []
-    reachable_us = []
-    reachable_ch = []
-    reachable_all = []
-    reachable_us_all = []
-    reachable_ch_all = []
     med_suppliers = [x.target_vertex for x in G.es(tier = 1)]
+
+    reachable = []
+    reachable_all = []
+    country_reachability = {s['country']:[] for s in set(med_suppliers)}
+    country_reachability_all = {s['country']:[] for s in set(med_suppliers)}
     for i in med_suppliers:
         print(len(reachable)/len(med_suppliers))
-        reachable.append(some_terminal_suppliers_reachable(i.index,G,G_thin))
+        s = some_terminal_suppliers_reachable(i.index,G,G_thin)
+        reachable.append(s)
+        country_reachability[i['country']].append(s)
+        
+        a = all_terminal_suppliers_reachable(i.index,G,G_thin)
         reachable_all.append(all_terminal_suppliers_reachable(i.index,G,G_thin))
-        if i['country'] == 'United States':
-            reachable_us.append(ans)
-            reachable_us_all.append(ans)
-        elif i['country'] == 'China':
-            reachable_ch.append(ans)
-            reachable_ch_all.append(ans)
+        country_reachability_all[i['country']].append(a)
     avg = np.mean(reachable)
     avg_all = np.mean(reachable_all)
     print("Percent of medical supply firms cut off from all terminal suppliers: " + str(1-avg))
     print("Percent of medical supply firms cut off from some terminal suppliers: " + str(1-avg_all))
 
-    avg_us = np.mean(reachable_us)
-    avg_ch = np.mean(reachable_ch)
-    avg_us_all = np.mean(reachable_us_all)
-    avg_ch_all = np.mean(reachable_ch_all)
-    print("Percent of US medical supply firms cut off from all terminal suppliers: " + str(1-avg_us))
-    print("Percent of Chinese medical supply firms cut off from all terminal suppliers: " + str(1-avg_ch))
-    print("Percent of US medical supply firms cut off from some terminal suppliers: " + str(1-avg_us_all))
-    print("Percent of Chinese medical supply firms cut off from some terminal suppliers: " + str(1-avg_ch_all))
+    import math
+    for c,l in country_reachability.items():
+        print("Percent of medical supply firms in " + str(c)  + ' cut off from all terminal suppliers: ' + str(1-np.mean(l))) # need str for nan
+    for c,l in country_reachability_all.items():
+        print("Percent of medical supply firms in " + str(c) + ' cut off from some terminal suppliers: ' + str(1-np.mean(l)))
+
+    
 
     return avg,avg_all
 
 # TODO: percent of terminal suppliers unreachable
-# TODO: all international borders close, with results by country
