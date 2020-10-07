@@ -65,7 +65,7 @@ def k_core(G,k=1,fname="k_core.gml"):
     save(G,fname)
     return G, core_ind
 
-def directed_igraph(giant=False):
+def directed_igraph(giant=False,no_software=True):
 
     firm_df = get_firm_df()
     edge_df = get_edge_df()
@@ -74,13 +74,20 @@ def directed_igraph(giant=False):
     G.vs['firm name']=firm_df['name']
     G.vs['industry']=firm_df['industry']
     G.vs['country']=firm_df['country']
-    G.vs['id'] = list(range(G.vcount())) # helps when passing to subgraphs
     G.add_edges(edge_df[['Source','Target']].itertuples(index=False))
     G.es['tier'] = edge_df.Tier
     #G.simplify(loops=False, combine_edges='min') # use min to keep smaller tier value. probably unnecessary
 
+    if no_software:
+        G=G.induced_subgraph(
+                [x.index for x in 
+                    G.vs(lambda x : x['industry'] not in 
+                        ['Application Software', 'IT Consulting and Other Services', 'Systems Software', 'Advertising', 'Movies and Entertainment', 'Interactive Home Entertainment'])])
+
     if giant:
         G=G.components().giant()
+
+    G.vs['id'] = list(range(G.vcount())) # helps when passing to subgraphs
 
     return G
 
@@ -183,46 +190,62 @@ def random_failure_reachability(G,rho=np.arange(0,1,.1)):
 
     return (avg,all_avg,per_avg)
 
-def no_china_us_reachability(G):
+def no_china_us_reachability(G,include_taiwan_hong_kong=False):
     print("Removing all US-China supply chain links")
+
+    # Get medical suppliers
+    firms = G.vs
+    firms['is_med'] = [False] * G.vcount()
+    for x in G.es(tier = 1): x.target_vertex['is_med'] = True
+
+    # define china
+    china=['China']
+    if include_taiwan_hong_kong:
+        print("Including Taiwan and Hong Kong in China")
+        china += ['Hong Kong','Taiwan']
+
+    # find chinese/us firms
+    is_ch = lambda x : type(x['country'] == str) and (x['country'] in china)
+    is_us = lambda x : x['country'] == 'United States'
+
+    # thin graph
     from copy import deepcopy
     G_thin = deepcopy(G)
-    G_thin.delete_edges(G_thin.es.select(_between = [G_thin.vs(country = 'United States'), G_thin.vs(country='China')]))
-    G_thin.delete_edges(G_thin.es.select(_between = [G_thin.vs(country = 'China'), G_thin.vs(country='US')]))
+    G_thin.delete_edges(
+            G_thin.es.select(
+                _between = [
+                    G_thin.vs(is_ch), 
+                    G_thin.vs(is_us)]))
     print("Percent of edges deleted: " + str(1-G_thin.ecount()/G.ecount()))
 
-    reachable = []
-    reachable_us = []
-    reachable_ch = []
-    reachable_all = []
-    reachable_us_all = []
-    reachable_ch_all = []
-    med_suppliers = [x.target_vertex for x in G.es(tier = 1)]
-    for i in med_suppliers:
-        print(len(reachable)/len(med_suppliers))
-        reachable.append(some_terminal_suppliers_reachable(i.index,G,G_thin))
-        reachable_all.append(all_terminal_suppliers_reachable(i.index,G,G_thin))
-        if i['country'] == 'United States':
-            reachable_us.append(ans)
-            reachable_us_all.append(ans)
-        elif i['country'] == 'China':
-            reachable_ch.append(ans)
-            reachable_ch_all.append(ans)
-    avg = np.mean(reachable)
-    avg_all = np.mean(reachable_all)
-    print("Percent of medical supply firms cut off from all terminal suppliers: " + str(1-avg))
-    print("Percent of medical supply firms cut off from some terminal suppliers: " + str(1-avg_all))
+    # compute reachability statistics
+    na = 'Not applicable'
+    firms['reachable_some'] = [(
+        some_terminal_suppliers_reachable(i.index,G,G_thin) if i['is_med'] 
+        else na)
+        for i in firms]
+    firms['reachable_all'] = [(
+        all_terminal_suppliers_reachable( i.index,G,G_thin) if i['is_med'] 
+        else na)
+        for i in firms]
 
-    avg_us = np.mean(reachable_us)
-    avg_ch = np.mean(reachable_ch)
-    avg_us_all = np.mean(reachable_us_all)
-    avg_ch_all = np.mean(reachable_ch_all)
-    print("Percent of US medical supply firms cut off from all terminal suppliers: " + str(1-avg_us))
-    print("Percent of Chinese medical supply firms cut off from all terminal suppliers: " + str(1-avg_ch))
-    print("Percent of US medical supply firms cut off from some terminal suppliers: " + str(1-avg_us_all))
-    print("Percent of Chinese medical supply firms cut off from some terminal suppliers: " + str(1-avg_ch_all))
+    # print outputs
+    med_firms = firms(is_med = True)
+    percent_reachable_some = len(med_firms(reachable_some = True)) / len(med_firms)
+    percent_reachable_all  = len(med_firms(reachable_all  = True)) / len(med_firms)
+    print("Percent of medical supply firms cut off from all terminal suppliers: " + str(1-percent_reachable_some))
+    print("Percent of medical supply firms cut off from some terminal suppliers: " + str(1-percent_reachable_all))
 
-    return avg,avg_all
+    us_med_firms = med_firms(lambda x : x['is_med'] and is_us(x))
+    ch_med_firms = med_firms(lambda x : x['is_med'] and is_ch(x))
+    percent_reachable_some_us = len(us_med_firms(reachable_some = True)) / len(us_med_firms)
+    percent_reachable_some_ch = len(ch_med_firms(reachable_some = True)) / len(ch_med_firms)
+    percent_reachable_all_us  = len(us_med_firms(reachable_all  = True)) / len(us_med_firms)
+    percent_reachable_all_ch  = len(ch_med_firms(reachable_all  = True)) / len(ch_med_firms)
+    print("Percent of US medical supply firms cut off from all terminal suppliers: " + str(1-percent_reachable_some_us))
+    print("Percent of Chinese medical supply firms cut off from all terminal suppliers: " + str(1-percent_reachable_some_ch))
+    print("Percent of US medical supply firms cut off from some terminal suppliers: " + str(1-percent_reachable_all_us))
+    print("Percent of Chinese medical supply firms cut off from some terminal suppliers: " + str(1-percent_reachable_all_ch))
 
 def close_all_borders(G):
     print("Removing all international supply chain links")
@@ -265,6 +288,6 @@ def close_all_borders(G):
 
     return avg,avg_all,avg_per
 
-#TODO add error bars on the random reachability plot
-#TODO neglect the regime where more than half of firms fail
-#TODO find a way to validate these results!!!!! I want to be confident
+# TODO Redo random plot for smaller tier counts
+# TODO Figure out which nodes are most important under random deletion
+# TODO Random deletion analysis at the “industry level” and “country level”
