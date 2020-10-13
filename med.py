@@ -142,34 +142,35 @@ def percent_terminal_suppliers_reachable(i,G,G_thin,t=None,u=None):
 
     return len(set(t) & set(u))/len(set(t))
 
-def random_thinning(G,rho):
-    return G.induced_subgraph((np.random.random(G.vcount()) <= rho).nonzero()[0].tolist())
+def random_thinning(G,rho,failure_type='firm'):
 
-def random_failure_reachability(G,rho=np.arange(0,1,.1)):
+    if failure_type == 'firm':
+        return G.induced_subgraph((np.random.random(G.vcount()) <= rho).nonzero()[0].tolist())
 
-    med_suppliers = [x.target_vertex for x in G.es(tier = 1)]
-    #med_suppliers = G.vs(_outdegree_eq = 0)
+    uniques = set(G.vs[failure_type])
+    import random
+    keep_uniques = random.sample(uniques,k=round(rho*len(uniques)))
+    return G.induced_subgraph(G.vs(lambda x : x[failure_type] in keep_uniques))
 
-    t = [get_terminal_suppliers(i.index,G) for i in med_suppliers]
-
+def _random_failure_reachability(rho,G,med_suppliers,t,failure_type='firm'):
     avg = []
     all_avg = []
     per_avg = []
     for r in rho:
-        print(r)
+        #print(r)
         reachable = []
         all_reachable = []
         per_reachable = []
 
-        G_thin = random_thinning(G,r)
-        u = [get_u(i.index,G_thin) for i in med_suppliers]
+        G_thin = random_thinning(G,r,failure_type=failure_type)
+        u = [get_u(i,G_thin) for i in med_suppliers]
         for j in range(len(med_suppliers)):
             i = med_suppliers[j]
             #print(len(reachable)/len(med_suppliers))
             if u[j]:
-                reachable.append(some_terminal_suppliers_reachable(i.index,G,G_thin,t[j],u[j]))
-                all_reachable.append(all_terminal_suppliers_reachable(i.index,G,G_thin,t[j],u[j]))
-                per_reachable.append(percent_terminal_suppliers_reachable(i.index,G,G_thin,t[j],u[j]))
+                reachable.append(some_terminal_suppliers_reachable(i,G,G_thin,t[j],u[j]))
+                all_reachable.append(all_terminal_suppliers_reachable(i,G,G_thin,t[j],u[j]))
+                per_reachable.append(percent_terminal_suppliers_reachable(i,G,G_thin,t[j],u[j]))
             else:
                 reachable.append(False)
                 all_reachable.append(False)
@@ -178,18 +179,77 @@ def random_failure_reachability(G,rho=np.arange(0,1,.1)):
         all_avg.append(np.mean(all_reachable))
         per_avg.append(np.mean(per_reachable))
 
-    import matplotlib.pyplot as plt
-    plt.scatter(rho,avg)
-    plt.scatter(rho,all_avg)
-    plt.scatter(rho,per_avg)
-    plt.plot(rho,rho)
-    plt.xlabel("Percent of remaining firms")
-    plt.ylabel("Percent of medical supply firms")
-    plt.title("Medical supply chain resilience under random firm failure")
-    plt.legend(['Expected firms remaining', 'Some end suppliers accessible','All end suppliers accessible','Avg. percent end suppliers reachable'])
+    return avg,all_avg,per_avg
+
+import matplotlib.pyplot as plt
+def random_failure_reachability(G,rho=np.arange(0,1,.1),tiers=5,plot=True,repeats=1,failure_type='firm'):
+
+    if tiers < 5:
+        G = deepcopy(G)
+        G.delete_edges(G.es(tier_ge = tiers+1))
+
+    med_suppliers = [x.target_vertex.index for x in G.es(tier = 1)]
+    #med_suppliers = G.vs(_outdegree_eq = 0)
+
+    t = [get_terminal_suppliers(i,G) for i in med_suppliers]
+
+#    avg = []
+#    all_avg = []
+#    per_avg = []
+#    for rep in range(repeats):
+#        print(rep)
+#        res = _random_failure_reachability(rho,G,med_suppliers,t,failure_type=failure_type)
+#        avg += res[0]
+#        all_avg += res[1]
+#        per_avg += res[2]
+
+    import ipyparallel
+    R = repeats
+    avgs = ipyparallel.Client().load_balanced_view().map(_random_failure_reachability,[rho]*R,[G]*R,[med_suppliers]*R,[t]*R,[failure_type]*R)
+    #avgs = ipyparallel.client[:].map(med._random_failure_reachability,rho,G,med_suppliers,t,failure_type)
+    a = zip(*avgs)
+    avg, all_avg,per_avg = [sum(b,[]) for b in a]
+
+    if plot:
+        rho = np.tile(rho,repeats)
+        df = pd.DataFrame(dict(rho=rho,avg=avg,all_avg=all_avg,per_avg=per_avg))
+        import seaborn as sns
+        ax=[]
+        ax.append(sns.lineplot(x='rho',y='avg',data=df,label='Some end suppliers accessible'))
+        ax.append(sns.lineplot(x='rho',y='all_avg',data=df,label='All end suppliers accessible'))
+        ax.append(sns.lineplot(x='rho',y='per_avg',data=df,label='Avg. percent end supplier reachable'))
+        ax.append(sns.lineplot(x='rho',y='rho',data=df,label='Expected firms remaining'))
+        ax[0].set(xlabel='Percent of remaining firms',
+                ylabel='Percent of firms',
+                title='Medical supply chain resilience under random firm failures')
+        plt.legend()
+
+#        plt.scatter(rho,avg)
+#        plt.scatter(rho,all_avg)
+#        plt.scatter(rho,per_avg)
+#        plt.plot(rho,rho)
+#        plt.xlabel("Percent of remaining firms")
+#        plt.ylabel("Percent of medical supply firms")
+#        plt.title("Medical supply chain resilience under random firm failure")
+#        plt.legend(['Expected firms remaining', 'Some end suppliers accessible','All end suppliers accessible','Avg. percent end suppliers reachable'])
 
     return (avg,all_avg,per_avg)
 
+def compare_tiers_random(G):
+    rho =  np.arange(0,1,.02)
+    trange = range(2,6)
+    per_avg = [random_failure_reachability(G,rho=rho,tiers=tiers,plot=False)[2] for tiers in trange]
+    plots = [plt.scatter(rho,pa) for pa in per_avg]
+    plt.plot(rho,rho)
+    plt.xlabel("Percent of remaining firms")
+    plt.ylabel("Avg. percent end suppliers reachable")
+    plt.title("Medical supply chain resilience under random firm failure")
+    plt.legend(plots, [str(t) + " tiers" for t in trange])
+
+    return per_avg
+
+
+from copy import deepcopy
 def no_china_us_reachability(G,include_taiwan_hong_kong=False):
     print("Removing all US-China supply chain links")
 
@@ -209,7 +269,6 @@ def no_china_us_reachability(G,include_taiwan_hong_kong=False):
     is_us = lambda x : x['country'] == 'United States'
 
     # thin graph
-    from copy import deepcopy
     G_thin = deepcopy(G)
     G_thin.delete_edges(
             G_thin.es.select(
@@ -288,6 +347,4 @@ def close_all_borders(G):
 
     return avg,avg_all,avg_per
 
-# TODO Redo random plot for smaller tier counts
-# TODO Figure out which nodes are most important under random deletion
 # TODO Random deletion analysis at the “industry level” and “country level”
