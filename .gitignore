@@ -1,0 +1,12 @@
+questions.txt
+results.txt
+dat
+im
+*.h5
+.cached_t*
+*lock*
+__pycache__
+auto/lit/
+iarpa
+nccu_grant
+papers
