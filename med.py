@@ -24,8 +24,11 @@ def get_firm_df():
 
     firm_df = pd.DataFrame(dict(ID=df['Source'],name=df['Source NAME'],industry=df['Source Industry'],country=df['Source Country']))
     firm_df = firm_df.append(pd.DataFrame(dict(ID=df['Target'],name=df['Target NAME'],industry=df['Target Industry'],country=df['Target Country'])))
+    for col in ['country', 'industry']:
+        firm_df[col] = firm_df[col].astype(str) # make NaNs into string nan
     firm_df = firm_df.drop_duplicates() # does this always keep the first one? wondering about an index error
     firm_df = firm_df.set_index('ID')
+    firm_df['country-industry'] = firm_df['country'] + ' '  + firm_df['industry']
 
     return firm_df
 
@@ -77,8 +80,8 @@ def directed_igraph(giant=False,no_software=True,reverse_direction=False):
     G = ig.Graph(directed=True)
     G.add_vertices(firm_df.index)
     G.vs['firm name']=firm_df['name']
-    G.vs['industry']=firm_df['industry']
-    G.vs['country']=firm_df['country']
+    for attr in ['industry', 'country', 'country-industry']:
+        G.vs[attr]=firm_df[attr]
 
     if reverse_direction:
         G.add_edges(edge_df[['Target','Source']].itertuples(index=False))
@@ -203,14 +206,18 @@ def random_thinning(G,rho,failure_type='firm'):
     return G.induced_subgraph(G.vs(lambda x : str(x[failure_type]) in keep_uniques))
 
 def target_by_attribute(G,attr):
-    sorted_attr_inds = sorted(range(G.vcount()), key=G.vs[attr].__getitem__)
-    #sorted_attr_inds_country = sorted(set(G['country']), 
-            #key=lambda x : sum(G.vs(country = x)[attr])) # TODO: check if na is correectly handled
+    sorted_attr_inds = dict()
+    sorted_attr_inds['firm'] = sorted(range(G.vcount()), key=G.vs[attr].__getitem__)
+    for failure_type in ['country', 'industry', 'country-industry']:
+        sorted_attr_inds[failure_type]  = sorted(set(G.vs[failure_type ]), key=lambda x : sum(G.vs(lambda v : v[failure_type] == x)[attr]))
 
     def targeted(G,r,failure_type='firm'):
-        if failure_type != 'firm': raise NotImplementedError
-        return G.induced_subgraph(
-                sorted_attr_inds[:int( (G.vcount()-1) * r )])
+        to_keep = sorted_attr_inds[failure_type][:int( (len(sorted_attr_inds[failure_type])-1) * r )]
+        if failure_type == 'firm':
+            return G.induced_subgraph(to_keep)
+        else:
+            return G.induced_subgraph(G.vs(lambda x : str(x[failure_type]) in to_keep))
+            
     return targeted
 
 def get_degree_attack(G):
@@ -232,7 +239,7 @@ def get_pagerank_attack(G,transpose=True):
 
     return target_by_attribute(G,'pagerank')
 
-def _random_failure_reachability_inner(r,G,med_suppliers,ts,failure_type='firm',callbacks=[],targeted=False):
+def _failure_reachability_inner(r,G,med_suppliers,ts,failure_type='firm',callbacks=[],targeted=False):
 
     G_thin = targeted(G,r,failure_type=failure_type) if targeted else random_thinning(G,r,failure_type=failure_type)
 
@@ -243,23 +250,23 @@ def _random_failure_reachability_inner(r,G,med_suppliers,ts,failure_type='firm',
         res.append(np.mean(sample))
     return res
 
-def _random_failure_reachability(rho,G,med_suppliers,ts,failure_type='firm',callbacks=[],targeted=False,parallel=False):
+def _failure_reachability(rho,G,med_suppliers,ts,failure_type='firm',callbacks=[],targeted=False,parallel=False):
     l=logging.getLogger('.med.log')
     l.setLevel(logging.INFO)
     l.addHandler(logging.FileHandler('.med.log'))
-    logging.info('Starting _random_failure_reachability')
+    logging.info('Starting _failure_reachability')
     avgs = []
     if parallel:
-        avgs = ipyparallel.Client().load_balanced_view().map(_random_failure_reachability_inner,
+        avgs = ipyparallel.Client().load_balanced_view().map(_failure_reachability_inner,
             rho,*list(zip(*[[G,med_suppliers,ts,failure_type,callbacks,targeted]]*len(rho))))
     else:
         for r in rho:
             print(r)
-            avgs.append(_random_failure_reachability_inner(r,G,med_suppliers,ts,failure_type=failure_type,callbacks=callbacks,targeted=targeted))
+            avgs.append(_failure_reachability_inner(r,G,med_suppliers,ts,failure_type=failure_type,callbacks=callbacks,targeted=targeted))
     return list(zip(*avgs))
 
 import seaborn as sns
-def random_failure_plot(rho,callbacks,avgs,plot_title='Medical supply chain resilience under random firm failures'):
+def failure_plot(rho,callbacks,avgs,plot_title='Medical supply chain resilience under random firm failures'):
 
     rho = np.tile(rho,len(avgs[0])//len(rho))
     ax=[]
@@ -267,7 +274,7 @@ def random_failure_plot(rho,callbacks,avgs,plot_title='Medical supply chain resi
     ax.append(sns.lineplot(x=rho,y=rho,label='Expected firms remaining'))
     ax[0].set(xlabel='Percent of remaining firms',
             ylabel='Percent of firms',
-            title='Medical supply chain resilience under random firm failures')
+            title=plot_title)
     plt.legend()
 
 class callback:
@@ -286,7 +293,7 @@ callbacks = [
     callback(percent_terminal_suppliers_reachable,0,'Avg. percent end supplier reachable'),
     callback(all_terminal_suppliers_exist,all_terminal_suppliers_exist,'All end suppliers surviving')]
 
-def random_failure_reachability(G,
+def failure_reachability(G,
         rho=np.linspace(0,1,10),
         tiers=5,
         plot=True,
@@ -317,24 +324,25 @@ def random_failure_reachability(G,
     args = [rho,G,med_suppliers,t,failure_type,callbacks,targeted]
     if parallel == 'repeat':
         avgs = ipyparallel.Client().load_balanced_view().map(
-                _random_failure_reachability,
+                _failure_reachability,
                 *list(zip(*[args]*repeats)))
     elif parallel == 'rho':
-        avgs = [_random_failure_reachability(*args,parallel=True)]
+        avgs = [_failure_reachability(*args,parallel=True)]
     else:
-        avgs = [_random_failure_reachability(*args) for _ in range(repeats)]
+        avgs = [_failure_reachability(*args) for _ in range(repeats)]
     a = zip(*avgs)
     avgs = [sum(b,()) for b in a]
 
     if plot:
-        random_failure_plot(rho,callbacks,avgs,plot_title=plot_title)
+        plot_title = 'Medical supply chain resilience under ' + ('targeted ' if targeted else 'random ') + failure_type + ' failures'
+        failure_plot(rho,callbacks,avgs,plot_title=plot_title)
 
     return avgs
 
 def compare_tiers_random(G, rho=np.linspace(0,1,101), repeats=25, plot=True):
     
     trange = range(2,6)
-    avgs = [random_failure_reachability(
+    avgs = [failure_reachability(
         G,
         rho=rho,
         tiers=tiers,
