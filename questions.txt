@@ -1,3 +1,7 @@
+Figures and tables I sent.
+Paper comments.
+Go through the data preprocessing line-by-line of code.
+
 I found duplicate edges. I assume this is an artifact of the way the data was gathered rather than reflecting something about the actual supply chain, right?
 
 Removing all US-China supply chain links
