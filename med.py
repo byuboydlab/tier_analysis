@@ -6,6 +6,13 @@ import matplotlib.pyplot as plt
 import pickle
 import logging
 import os
+from copy import deepcopy
+import math
+import itertools
+import random
+import seaborn as sns
+from functools import partial
+import matplotlib
 #logging.basicConfig(filename='.med.log',level=logging.DEBUG,format='%(levelname)s:%(message)s',filemode='w')
 
 def get_df(cached=True,save=True):
@@ -127,7 +134,6 @@ def directed_igraph(giant=False,no_software=True,reverse_direction=False,include
 
     return G
 
-import itertools
 def get_terminal_suppliers(i,G):
     if type(i) is ig.Vertex:
         i = i.index
@@ -215,7 +221,6 @@ def is_subgraph(G_thin,G):
 
     return True
 
-import random
 def random_thinning_factory(G):
     firm_rands = np.random.random(G.vcount())
 
@@ -290,47 +295,14 @@ def get_pagerank_attack(G,transpose=True):
     return target_by_attribute(G,attrname)
 get_pagerank_attack.description='pagerank'
 
+def get_null_attack(G):
+    def null_attack(G,r,failure_scale='firm'):
+        return G
+    return null_attack
+get_null_attack.description='null-targeted'
+
 dv = ipyparallel.Client()[:] # This should be global (or a singleton) to avoid an error with too many files open https://github.com/ipython/ipython/issues/6039
 dv.block=False
-
-def _failure_reachability_inner(r,G,med_suppliers,ts,failure_scale='firm',callbacks=[],targeted=False):
-
-    G_thin = targeted(G,r,failure_scale=failure_scale)
-    med_suppliers_thin = {i_thin['id']:i_thin.index for i_thin in G_thin.vs if i_thin['id'] in med_suppliers}
-
-    res = []
-    us = [get_u(i,G_thin, med_suppliers_thin) for i in med_suppliers]
-    for cb in callbacks:
-        sample = [cb(med_suppliers,G,G_thin,t,u) for i,t,u in zip(med_suppliers,ts,us)]
-        res.append(np.mean(sample))
-    return res
-
-def _failure_reachability(rho,G,med_suppliers,ts,failure_scale='firm',callbacks=[],targeted_factory=False,parallel=False):
-    avgs = []
-    if parallel:
-        avgs = dv.map(_failure_reachability_inner,
-            rho,*list(zip(*[[G,med_suppliers,ts,failure_scale,callbacks,targeted_factory(G)]]*len(rho))))
-    else:
-        targeted=targeted_factory(G)
-        for r in rho:
-            print(r)
-            avgs.append(_failure_reachability_inner(r,G,med_suppliers,ts,failure_scale=failure_scale,callbacks=callbacks,targeted=targeted))
-    return list(zip(*avgs))
-
-import seaborn as sns
-def failure_plot(rho,callbacks,avgs,plot_title='Medical supply chain resilience under random firm failures',save_only=False,filename=None,xlabel='Percent firms remaining'):
-
-    rho = np.tile(rho,len(avgs[0])//len(rho))
-    ax=[]
-    ax = [sns.lineplot(x=rho,y=avg,label=cb.description) for avg,cb in zip(avgs,callbacks)]
-    ax.append(sns.lineplot(x=rho,y=rho,label=xlabel))
-    ax[0].set(xlabel=xlabel,
-            ylabel='Percent of firms',
-            title=plot_title)
-    plt.legend()
-
-    if save_only:
-        plt.savefig(filename)
 
 class callback:
     def __init__(self,function,default,description):
@@ -348,6 +320,57 @@ callbacks = [
     callback(percent_terminal_suppliers_reachable,0,'Avg. percent end supplier reachable'),
     callback(all_terminal_suppliers_exist,all_terminal_suppliers_exist,'All end suppliers surviving')]
 
+def failure_reachability_single(r,G,med_suppliers=False,ts=False,failure_scale='firm',callbacks=callbacks,targeted=False):
+
+    if not med_suppliers:
+        med_suppliers=get_med_suppliers(G)
+    if not ts:
+        ts = [get_terminal_suppliers(i,G) for i in med_suppliers]
+    if not targeted:
+        targeted=random_thinning_factory(G)
+
+    G_thin = targeted(G,r,failure_scale=failure_scale)
+    med_suppliers_thin = {i_thin['id']:i_thin.index for i_thin in G_thin.vs if i_thin['id'] in med_suppliers}
+
+    res = []
+    us = [get_u(i,G_thin, med_suppliers_thin) for i in med_suppliers]
+    for cb in callbacks:
+        sample = [cb(med_suppliers,G,G_thin,t,u) for i,t,u in zip(med_suppliers,ts,us)]
+        res.append(np.mean(sample))
+    return res
+
+def failure_reachability_sweep(rho,G,med_suppliers=False,ts=False,failure_scale='firm',callbacks=callbacks,targeted_factory=random_thinning_factory,parallel=False):
+
+    if not med_suppliers:
+        med_suppliers=get_med_suppliers(G)
+    if not ts:
+        ts = [get_terminal_suppliers(i,G) for i in med_suppliers]
+
+    avgs = []
+    if parallel:
+        avgs = dv.map(failure_reachability_single,
+            rho,*list(zip(*[[G,med_suppliers,ts,failure_scale,callbacks,targeted_factory(G)]]*len(rho))))
+    else:
+        targeted=targeted_factory(G)
+        for r in rho:
+            print(r)
+            avgs.append(failure_reachability_single(r,G,med_suppliers,ts,failure_scale=failure_scale,callbacks=callbacks,targeted=targeted))
+    return list(zip(*avgs))
+
+def failure_plot(rho,callbacks,avgs,plot_title='Medical supply chain resilience under random firm failures',save_only=False,filename=None,xlabel='Percent firms remaining'):
+
+    rho = np.tile(rho,len(avgs[0])//len(rho))
+    ax=[]
+    ax = [sns.lineplot(x=rho,y=avg,label=cb.description) for avg,cb in zip(avgs,callbacks)]
+    ax.append(sns.lineplot(x=rho,y=rho,label=xlabel))
+    ax[0].set(xlabel=xlabel,
+            ylabel='Percent of firms',
+            title=plot_title)
+    plt.legend()
+
+    if save_only:
+        plt.savefig(filename)
+
 def failure_reachability(G,
         rho=np.linspace(0,1,10),
         tiers=5,
@@ -363,7 +386,7 @@ def failure_reachability(G,
         prefix='',
         med_suppliers=None):
 
-    if parallel == 'auto':
+    if parallel == 'auto' or parallel == True:
         parallel = 'repeat' if repeats > 1 else 'rho'
 
     if tiers < 5:
@@ -371,7 +394,7 @@ def failure_reachability(G,
         G.delete_edges(G.es(tier_ge = tiers+1))
 
     if med_suppliers is None:
-        med_suppliers = {i.index for i in get_med_suppliers(G)}
+        med_suppliers = [i.index for i in get_med_suppliers(G)]
 
     if use_cached_t:
         t=[]
@@ -383,12 +406,12 @@ def failure_reachability(G,
     args = [[rho,G,med_suppliers,t,failure_scale,callbacks,targeted_factory]]*repeats
 
     if parallel == 'repeat':
-        avgs = dv.map(_failure_reachability,
+        avgs = dv.map(failure_reachability_sweep,
                 *list(zip(*args)))
     elif parallel == 'rho':
-        avgs = [_failure_reachability(*args[0],parallel=True)]
+        avgs = [failure_reachability_sweep(*args[0],parallel=True)]
     else:
-        avgs = [_failure_reachability(*args[0]) for _ in range(repeats)]
+        avgs = [failure_reachability_sweep(*args[0]) for _ in range(repeats)]
     a = zip(*avgs)
     avgs = [sum(b,()) for b in a]
 
@@ -440,7 +463,6 @@ def compare_tiers_random(G, rho=np.linspace(0,1,101), repeats=25, plot=True,save
         rho=rho,
         tiers=tiers,
         plot=False,
-        use_cached_t = False,
         callbacks=(callbacks[2],),
         repeats=repeats)[0] for tiers in trange]
 
@@ -506,10 +528,8 @@ def no_china_us_reachability(G,include_taiwan_hong_kong=False):
     return by_country
 
 def get_med_suppliers(G):
-    return {x.target_vertex for x in G.es(tier = 1)}
+    return list({x.target_vertex for x in G.es(tier = 1)})
 
-from copy import deepcopy
-import math
 def close_all_borders(G):
     #print("Removing all international supply chain links")
     G_thin = deepcopy(G)
@@ -559,8 +579,6 @@ def industry_deletion_effects(G):
 
     return res
 
-from functools import partial
-import matplotlib
 def run_all_simulations(G=None,attacks=None,attack_repeats=None):
     if G is None:
         G = directed_igraph()
@@ -576,30 +594,16 @@ def run_all_simulations(G=None,attacks=None,attack_repeats=None):
         attacks[2].description = 'pagerank-targeted'
         attack_repeats = [25,1,1,25]
 
-    med_suppliers = {i.index for i in get_med_suppliers(G)}
-
-    # Software include-exclude
-    graphs = (directed_igraph(no_software = True), directed_igraph(no_software = False))
-    for G, inclusive  in zip(graphs, (False, True)):
-        for attack,repeats in zip(attacks,attack_repeats):
-            print('Software ' + ('included' if inclusive else 'excluded') + ' ' + (attack.description if attack else 'random'))
-            plt.clf()
-            failure_reachability(G,rho=full_rho, targeted_factory=attack, save_only=True,
-                    repeats=repeats, failure_scale='firm',
-                    use_cached_t = not (attack is None),
-                    G_has_no_software_flag = (not inclusive),
-                    prefix='software_compare',
-                    med_suppliers=med_suppliers)
+    med_suppliers = [i.index for i in get_med_suppliers(G)]
 
     # Failure type X attack type
-    for rho in [full_rho, np.linspace(.9,1,101), np.linspace(.99,1,101),np.linspace(.999,1,101)]:
+    for rho in [full_rho, np.linspace(.9,1,101), np.linspace(.99,1,101),np.linspace(.999,1,101),np.linspace(.9999,1,101)]:
         for failure_scale in failure_scales:
             for attack,repeats in zip(attacks,attack_repeats):
                 print(failure_scale + ' ' + (attack.description if attack else 'random') + ' scale ' + str(rho[0]) + ' ' + str(rho[-1]))
                 plt.clf()
                 failure_reachability(G,rho=rho, targeted_factory=attack, save_only=True,
                         repeats=repeats, failure_scale=failure_scale,
-                        use_cached_t = not (attack==None and failure_scale=='firm'),
                         prefix='scales_and_attacks_' + str(rho[0]) + '_' + str(rho[-1]),
                         med_suppliers=med_suppliers)
 
@@ -616,6 +620,18 @@ def run_all_simulations(G=None,attacks=None,attack_repeats=None):
     print('compare_tiers_random')
     plt.clf()
     compare_tiers_random(G,rho=full_rho,repeats=25,plot='save')
+
+    # Software include-exclude
+    graphs = (directed_igraph(no_software = True), directed_igraph(no_software = False))
+    for G, inclusive  in zip(graphs, (False, True)):
+        for attack,repeats in zip(attacks,attack_repeats):
+            print('Software ' + ('included' if inclusive else 'excluded') + ' ' + (attack.description if attack else 'random'))
+            plt.clf()
+            failure_reachability(G,rho=full_rho, targeted_factory=attack, save_only=True,
+                    repeats=repeats, failure_scale='firm',
+                    G_has_no_software_flag = (not inclusive),
+                    prefix='software_compare',
+                    med_suppliers=med_suppliers)
 
     # Country-based and international
     print('no_china_us_reachability')
