@@ -193,23 +193,27 @@ def some_terminal_suppliers_reachable(i,G,G_thin,t=None,u=None):
     if u & t: # set intersection
         return True
     return False
+some_terminal_suppliers_reachable.description='Some end suppliers accessible'
 
 def all_terminal_suppliers_reachable(i,G,G_thin,t=None,u=None):
     if t is None: t = get_terminal_suppliers(i,G)
     if u is None: u = get_u(i,G_thin)
 
     return t.issubset(u)
+all_terminal_suppliers_reachable.description='All end suppliers accessible'
 
 def percent_terminal_suppliers_reachable(i,G,G_thin,t=None,u=None):
     if t is None: t = get_terminal_suppliers(i,G)
     if u is None: u = get_u(i,G_thin)
 
     return len(t & u)/len(t)
+percent_terminal_suppliers_reachable.description='Avg. percent end supplier reachable'
 
 def all_terminal_suppliers_exist(i,G,G_thin,t=None,u=None):
     if t is None: t = get_terminal_suppliers(i,G)
 
     return t.issubset(G_thin.vs['id'])
+all_terminal_suppliers_exist.description='All end suppliers surviving'
 
 def is_subgraph(G_thin,G):
 
@@ -311,22 +315,12 @@ get_null_attack.description='null-targeted'
 
 dv = ipyparallel.Client()[:] # This should be global (or a singleton) to avoid an error with too many files open https://github.com/ipython/ipython/issues/6039
 dv.block=False
-
-class callback:
-    def __init__(self,function,default,description):
-        self.function = function
-        self.default = default
-        self.description = description
-
-    def __call__(self,med_suppliers,G,G_thin,t=None,u=None):
-        return self.function(med_suppliers,G,G_thin,t,u) if u or callable(self.default) \
-            else self.default
+dv.use_dill()
 
 callbacks = [
-    callback(some_terminal_suppliers_reachable,False,'Some end suppliers accessible'),
-    callback(all_terminal_suppliers_reachable,False,'All end suppliers accessible'),
-    callback(percent_terminal_suppliers_reachable,0,'Avg. percent end supplier reachable'),
-    callback(all_terminal_suppliers_exist,all_terminal_suppliers_exist,'All end suppliers surviving')]
+some_terminal_suppliers_reachable,
+percent_terminal_suppliers_reachable,
+]
 
 def failure_reachability_single(r,G,med_suppliers=False,ts=False,failure_scale='firm',callbacks=callbacks,targeted=False):
 
@@ -471,7 +465,7 @@ def compare_tiers_random(G, rho=np.linspace(0,1,101), repeats=25, plot=True,save
         rho=rho,
         tiers=tiers,
         plot=False,
-        callbacks=(callbacks[2],),
+        callbacks=(percent_terminal_suppliers_reachable,),
         repeats=repeats)[0] for tiers in trange]
 
     if plot:
