@@ -100,7 +100,7 @@ def k_core(G,k=1,fname="k_core.gml"):
     save(G,fname)
     return G, core_ind
 
-def directed_igraph(giant=False,no_software=True,reverse_direction=False,include_private=True):
+def directed_igraph(giant=True,no_software=True,reverse_direction=False,include_private=True,cut_low_terminal_suppliers=True):
 
     firm_df = get_firm_df()
     edge_df = get_edge_df()
@@ -118,8 +118,8 @@ def directed_igraph(giant=False,no_software=True,reverse_direction=False,include
     G.es['tier'] = edge_df.Tier
     #G.simplify(loops=False, combine_edges='min') # use min to keep smaller tier value. probably unnecessary
 
-    med_suppliers = get_med_suppliers(G)
-    G.vs['is_medical'] = [i in med_suppliers for i in range(G.vcount())]
+    G.vs['tier_set'] = [set([e['tier'] for e in n.all_edges()])
+        for n in G.vs]
 
     if no_software:
         G=G.induced_subgraph(
@@ -128,9 +128,17 @@ def directed_igraph(giant=False,no_software=True,reverse_direction=False,include
                         ['Application Software', 'IT Consulting and Other Services', 'Systems Software', 'Advertising', 'Movies and Entertainment', 'Interactive Home Entertainment'])])
 
     if giant:
-        G=G.components().giant()
+        G=G.components(mode='WEAK').giant()
 
     G.vs['id'] = list(range(G.vcount())) # helps when passing to subgraphs
+    med_suppliers = get_med_suppliers(G)
+    G.vs['is_medical'] = [i in med_suppliers for i in range(G.vcount())]
+
+    if cut_low_terminal_suppliers:
+        t = [get_terminal_suppliers(i,G) for i in med_suppliers]
+        to_delete = [m for m,tt in zip(med_suppliers,t) if len(tt) < 31] # 31 because there is a jump in len(tt) here
+        G.delete_vertices(to_delete)
+        G.vs['id'] = list(range(G.vcount())) # recalculate
 
     return G
 
@@ -579,9 +587,9 @@ def industry_deletion_effects(G):
 
     return res
 
-def run_all_simulations(G=None,attacks=None,attack_repeats=None):
+def run_all_simulations(G=None,attacks=None,attack_repeats=None,giant=True):
     if G is None:
-        G = directed_igraph()
+        G = directed_igraph(giant=giant)
 
     old_backend = matplotlib.backends.backend
     matplotlib.use('Agg') # non-interactive
@@ -622,7 +630,8 @@ def run_all_simulations(G=None,attacks=None,attack_repeats=None):
     compare_tiers_random(G,rho=full_rho,repeats=25,plot='save')
 
     # Software include-exclude
-    graphs = (directed_igraph(no_software = True), directed_igraph(no_software = False))
+    graphs = (directed_igraph(no_software = True, giant=giant), 
+            directed_igraph(no_software = False, giant=giant))
     for G, inclusive  in zip(graphs, (False, True)):
         for attack,repeats in zip(attacks,attack_repeats):
             print('Software ' + ('included' if inclusive else 'excluded') + ' ' + (attack.description if attack else 'random'))
@@ -630,8 +639,7 @@ def run_all_simulations(G=None,attacks=None,attack_repeats=None):
             failure_reachability(G,rho=full_rho, targeted_factory=attack, save_only=True,
                     repeats=repeats, failure_scale='firm',
                     G_has_no_software_flag = (not inclusive),
-                    prefix='software_compare',
-                    med_suppliers=med_suppliers)
+                    prefix='software_compare')
 
     # Country-based and international
     print('no_china_us_reachability')
