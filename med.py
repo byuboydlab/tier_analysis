@@ -89,7 +89,7 @@ def directed_igraph(
         reverse_direction=False,
         include_private=True,
         cut_low_terminal_suppliers=True,
-        small=False):
+        reduced_density=False):
 
     firm_df = get_firm_df()
     edge_df = get_edge_df()
@@ -129,8 +129,8 @@ def directed_igraph(
         G.delete_vertices(to_delete)
         G.vs['id'] = list(range(G.vcount())) # recalculate
 
-    if small:
-        G=random_thinning_factory(G)(G,.2)
+    if reduced_density:
+        G=random_thinning_factory(G)(G,reduced_density) # .2 works. .1 might have no med suppliers
 
     return G
 
@@ -243,10 +243,10 @@ def random_thinning_factory(G):
         else:
             keep_uniques = perm[failure_scale][:round(rho*len(uniques[failure_scale]))]
             return G.induced_subgraph(G.vs(lambda x : x[failure_scale] in keep_uniques))
-    attack.description = 'random'
+    attack.description = 'Random'
 
     return attack
-random_thinning_factory.description = 'random'
+random_thinning_factory.description = 'Random'
 
 def target_by_attribute(G,attr):
 
@@ -262,7 +262,7 @@ def target_by_attribute(G,attr):
         else:
             return G.induced_subgraph(G.vs(lambda x : str(x[failure_scale]) in to_keep))
 
-    targeted.description = attr+'-targeted'
+    targeted.description = attr#+'-targeted'
             
     return targeted
 
@@ -274,16 +274,16 @@ def get_employee_attack(G):
     for v,s in zip(G.vs(employees_imputed_eq = True),imputed_size):
         v['employees'] = s
     return target_by_attribute(G,'employees')
-get_employee_attack.description = 'employee-targeted'
+get_employee_attack.description = 'Employee'#-targeted'
 
 def get_degree_attack(G):
     G.vs['degree'] = G.degree(range(G.vcount()))
     return target_by_attribute(G,'degree')
-get_degree_attack.description = 'degree-targeted'
+get_degree_attack.description = 'Degree'#-targeted'
 
 def get_pagerank_attack(G,transpose=True):
 
-    attrname = 'pagerank-of-transpose' if transpose else 'pagerank'
+    attrname = 'Pagerank of transpose' if transpose else 'Pagerank'
     try:
         G[attrname]
     except:
@@ -299,13 +299,13 @@ def get_pagerank_attack(G,transpose=True):
             G.vs[attrname]=G.pagerank()
 
     return target_by_attribute(G,attrname)
-get_pagerank_attack.description='pagerank'
+get_pagerank_attack.description='Pagerank'
 
 def get_null_attack(G):
     def null_attack(G,r,failure_scale='firm'):
         return G
     return null_attack
-get_null_attack.description='null-targeted'
+get_null_attack.description='Null'#-targeted'
 
 dv = ipyparallel.Client()[:] # This should be global (or a singleton) to avoid an error with too many files open https://github.com/ipython/ipython/issues/6039
 dv.block=False
@@ -382,29 +382,41 @@ def attack_compare_plot(
         save=False,
         failure_scale='firm',
         tiers=5,
-        software_included=False):
+        software_included=False,
+        metric=percent_terminal_suppliers_reachable.description,
+        rho_scale=np.linspace(.3,1,71)):
 
     if avgs is None:
         avgs = pd.read_hdf('all_results.h5')
 
-    rho = avgs.columns[0]
+    rho = "Percent " + get_plural(failure_scale) + " remaining"
 
-    ax=sns.lineplot(x=avgs.columns[0],
-            y=percent_terminal_suppliers_reachable.description,
-            data=avgs[
-                (avgs['Software included'] == software_included) &
-                (avgs['Tiers'] == tiers) &
-                (avgs['Failure scale'] == failure_scale)],
+    data=avgs[
+        (avgs['Software included'] == software_included) &
+        (avgs['Tiers'] == tiers) &
+        (avgs['Failure scale'] == failure_scale) &
+        (avgs[rho] <= rho_scale[-1]) &
+        (avgs[rho] >= rho_scale[0])]
+    ax=sns.lineplot(x=rho,
+            y=metric,
+            data=data,
             hue='Attack type')
+    plt.plot([rho_scale[0],rho_scale[-1]],
+            [rho_scale[0],rho_scale[-1]],
+            color=sns.color_palette()[data['Attack type'].unique().size],label=rho)
     ax.set(title = failure_scale.capitalize() + ' failures')
+    plt.legend()
 
     if save:
         fname = prefix + '/'\
             + failure_scale\
-            + '_range_' + str(min(rho)) + '_' + str(max(rho))\
+            + '_range_' + str(rho_scale[0]) + '_' + str(rho_scale[-1])\
+            + '_' + metric.replace(' ','_').replace('.','').lower()\
+            + ('_' + tiers + '_tiers_' if tiers < 5 else '')\
+            + ('_software_included' if software_included  else '')\
             + '.svg'
-        os.makedirs(os.path.dirname('im/'  + fname),exist_ok=True)
-        plt.savefig(filename)
+        os.makedirs(os.path.dirname(fname),exist_ok=True)
+        plt.savefig(fname)
 
     return ax
 
@@ -458,7 +470,7 @@ def failure_reachability(G,
                 + ((' excluding software firms' if G_has_no_software_flag else ' including software firms') if G_has_no_software_flag is not None else '')
         fname = prefix + '/'\
                 + failure_scale\
-                + '_' + targeted_factory.description\
+                + '_' + targeted_factory.description.replace(' ','_').lower()\
                 + '_range_' + str(rho[0]) + '_' + str(rho[-1])\
                 + '_repeats_' + str(repeats)\
                 + ('_tiers_' + str(tiers) if tiers < 5 else '')\
@@ -511,10 +523,10 @@ def compare_tiers_random(G, rho=np.linspace(0,1,101), repeats=25, plot=True,save
                     for i,avg in zip(trange,avgs)]
         ax[0].set(xlabel='Percent remaining firms',
                 ylabel='Percent end suppliers reachable',
-                title= attack.description.capitalize + ' failures')
+                title= attack.description.capitalize() + ' failures')
         plt.legend()
         if save:
-            fname = 'compare_tiers_random_' + attack.description
+            fname = 'compare_tiers_random_' + attack.description.replace(' ','_').lower()
             with open('dat/' + fname+'.pickle',mode='wb') as f:
                 pickle.dump(avgs,f)
             plt.savefig('im/'+fname+'.svg')
@@ -611,7 +623,11 @@ def run_all_simulations(
         repeats=None,
         giant=True,
         rho_scales=None,
-        software_compare=False):
+        software_compare=False,
+        scales_simulations=True,
+        tiers_simulations=True,
+        tiers=range(1,6),
+        write_mode='w'):
 
     if G is None:
         G = directed_igraph(giant=giant)
@@ -623,8 +639,8 @@ def run_all_simulations(
     failure_scales = ['firm','country','industry','country-industry']
     if attacks is None:
         attacks = [random_thinning_factory, partial(get_pagerank_attack,transpose=True), partial(get_pagerank_attack, transpose=False), get_employee_attack]
-        attacks[1].description = 'pagerank-of-transpose-targeted'
-        attacks[2].description = 'pagerank-targeted'
+        attacks[1].description = 'Pagerank of transpose'
+        attacks[2].description = 'Pagerank'
 
     max_repeats=24
     if repeats=='min':
@@ -642,36 +658,41 @@ def run_all_simulations(
     med_suppliers = [i.index for i in get_med_suppliers(G)]
 
     res = pd.DataFrame(columns=['Percent firms remaining'] + [cb.description for cb in callbacks] + ['Failure scale', 'Attack type', 'Tiers', 'Software included'])
+    res.Tiers = res.Tiers.astype(int)
+    res['Software included']=res['Software included'].astype(bool)
 
     # Failure type X attack type
-    for rho in rho_scales:
-        for failure_scale in failure_scales:
-            for attack in attacks:
-                print(failure_scale + ' ' + (attack.description if attack else 'random') + ' scale ' + str(rho[0]) + ' ' + str(rho[-1]))
-                plt.clf()
-                avgs=failure_reachability(G,
-                        rho=rho, 
-                        targeted_factory=attack, 
-                        save_only=True,
-                        repeats=repeats[attack], 
-                        failure_scale=failure_scale,
-                        prefix='scales_and_attacks_' + str(rho[0]) + '_' + str(rho[-1]),
-                        med_suppliers=med_suppliers)
-                avgs[['Tiers','Software included']]=[5, False]
-                res=res.append(avgs,ignore_index=True)
+    if scales_simulations:
+        for rho in rho_scales:
+            for failure_scale in failure_scales:
+                for attack in attacks:
+                    print(failure_scale + ' ' + (attack.description if attack else 'random') + ' scale ' + str(rho[0]) + ' ' + str(rho[-1]))
+                    plt.clf()
+                    avgs=failure_reachability(G,
+                            rho=rho, 
+                            targeted_factory=attack, 
+                            save_only=True,
+                            repeats=repeats[attack], 
+                            failure_scale=failure_scale,
+                            prefix='scales_and_attacks_' + str(rho[0]) + '_' + str(rho[-1]),
+                            med_suppliers=med_suppliers)
+                    avgs[['Tiers','Software included']]=[5, False]
+                    res=res.append(avgs,ignore_index=True)
+    res.to_hdf('all_results.h5',key='avgs',mode=write_mode)
 
     # tiers
-    tiers = range(1,6)
-    for tier in tiers:
-        for attack in attacks:
-            print(str(tier) + ' ' + (attack.description if attack else 'random'))
-            plt.clf()
-            avgs=failure_reachability(G,rho=full_rho,tiers=tier,targeted_factory=attack, save_only=True,
-                    repeats=repeats[attack],
-                    prefix='tiers',
-                    med_suppliers=med_suppliers)
-            avgs[['Tiers','Software included']]=[tier, False]
-            res=res.append(avgs,ignore_index=True)
+    if tiers_simulations:
+        for tier in tiers:
+            for attack in attacks:
+                print(str(tier) + ' ' + (attack.description if attack else 'random'))
+                plt.clf()
+                avgs=failure_reachability(G,rho=full_rho,tiers=tier,targeted_factory=attack, save_only=True,
+                        repeats=repeats[attack],
+                        prefix='tiers',
+                        med_suppliers=med_suppliers)
+                avgs[['Tiers','Software included']]=[tier, False]
+                res=res.append(avgs,ignore_index=True)
+    res.to_hdf('all_results.h5',key='avgs',mode='a')
 
     print('compare_tiers_random')
     plt.clf()
@@ -695,8 +716,7 @@ def run_all_simulations(
                         prefix='software_compare')
                 avgs[['Tiers','Software included']]=[5, inclusive]
                 res=res.append(avgs,ignore_index=True)
-
-    avgs.to_hdf('all_results.h5',key='avgs',mode='w')
+    res.to_hdf('all_results.h5',key='avgs',mode='a')
 
     # Country-based and international
     print('no_china_us_reachability')
@@ -708,6 +728,22 @@ def run_all_simulations(
     print('industry_deletion_effects')
     industry_deletion_effects(G)
 
+    print('plotting')
+    for failure_scale in failure_scales:
+        res_temp = res[(res.Tiers == 5) &
+                (res['Failure scale'] == failure_scale) &
+                (res['Software included'] == False)]
+        for rho in rho_scales:
+            for metric in callbacks:
+                print(failure_scale + ' ' + str(rho[0]) + ' ' + metric.description)
+                plt.clf()
+                attack_compare_plot(res_temp,
+                        failure_scale=failure_scale,
+                        rho_scale=rho,
+                        prefix='im/attack_compare',
+                        save=True,
+                        metric=metric.description)
+    
     matplotlib.use(old_backend) # non-interactive ('Qt5Agg' for me)
 
     return res
