@@ -55,7 +55,7 @@ def get_firm_df():
     firm_df = firm_df.drop_duplicates() # does this always keep the first one? wondering about an index error
     firm_df = firm_df.set_index('ID')
     firm_df['country-industry'] = firm_df['country'] + ' '  + firm_df['industry']
-    firm_df.loc[firm_df['employees'] == '(Invalid Identifier)'] = math.nan
+    firm_df.loc[firm_df['employees'] == '(Invalid Identifier)','employees'] = math.nan
 
     return firm_df
 
@@ -299,6 +299,10 @@ def get_pagerank_attack(G,transpose=True):
             G.vs[attrname]=G.pagerank()
 
     return target_by_attribute(G,attrname)
+get_pagerank_attack.description='Pagerank of transpose'
+
+def get_pagerank_attack_no_transpose(G):
+    return get_pagerank_attack(G,transpose=False)
 get_pagerank_attack.description='Pagerank'
 
 def get_null_attack(G):
@@ -306,6 +310,14 @@ def get_null_attack(G):
         return G
     return null_attack
 get_null_attack.description='Null'#-targeted'
+
+def impute_industry(G):
+    G.vs['industry_imputed'] = [x == 'nan' for x in G.vs['industry']]
+    industry_dist = np.array([x['industry'] for x in G.vs if x['industry'] != 'nan'])
+    imputed_industry = np.random.choice(industry_dist,len(G.vs(industry_imputed_eq = True)),replace=True)
+    for v,s in zip(G.vs(industry_imputed_eq = True),imputed_industry):
+        v['industry'] = s
+    return G
 
 dv = ipyparallel.Client()[:] # This should be global (or a singleton) to avoid an error with too many files open https://github.com/ipython/ipython/issues/6039
 dv.block=False
@@ -340,7 +352,7 @@ def failure_reachability_single(r,G,med_suppliers=False,ts=False,failure_scale='
 def failure_reachability_sweep(rho,G,med_suppliers=False,ts=False,failure_scale='firm',callbacks=callbacks,targeted_factory=random_thinning_factory,parallel=False):
 
     if not med_suppliers:
-        med_suppliers=get_med_suppliers(G)
+        med_suppliers=[i.index for i in get_med_suppliers(G)]
     if not ts:
         ts = [get_terminal_suppliers(i,G) for i in med_suppliers]
 
@@ -378,7 +390,7 @@ def failure_plot(avgs,plot_title='Medical supply chain resilience under random f
 
 def attack_compare_plot(
         avgs=None,
-        prefix='',
+        fname='temp.svg',
         save=False,
         failure_scale='firm',
         tiers=5,
@@ -408,13 +420,6 @@ def attack_compare_plot(
     plt.legend()
 
     if save:
-        fname = prefix + '/'\
-            + failure_scale\
-            + '_range_' + str(rho_scale[0]) + '_' + str(rho_scale[-1])\
-            + '_' + metric.replace(' ','_').replace('.','').lower()\
-            + ('_' + tiers + '_tiers_' if tiers < 5 else '')\
-            + ('_software_included' if software_included  else '')\
-            + '.svg'
         os.makedirs(os.path.dirname(fname),exist_ok=True)
         plt.savefig(fname)
 
@@ -452,7 +457,11 @@ def failure_reachability(G,
         t = [get_terminal_suppliers(i,G) for i in med_suppliers]
         with open('.cached_t','wb') as f: pickle.dump(t,f)
 
-    args = [[rho,G,med_suppliers,t,failure_scale,callbacks,targeted_factory]]*repeats
+    args = [deepcopy([rho,G,med_suppliers,t,failure_scale,callbacks,targeted_factory]) for _ in range(repeats)]
+
+    if failure_scale == 'industry':
+        for a in args:
+            a[1] = impute_industry(deepcopy(G))
 
     if parallel == 'repeat':
         avgs = dv.map(failure_reachability_sweep,
@@ -499,7 +508,7 @@ def get_plural(x):
     else:
         raise NotImplementedError
 
-def compare_tiers_random(G, rho=np.linspace(0,1,101), repeats=25, plot=True,save=True, attack = random_thinning_factory):
+def compare_tiers_random(G, rho=np.linspace(0,1,101), repeats=25, plot=True,save=True, attack = random_thinning_factory, failure_scale='firm'):
     
     trange = range(1,6)
     avgs = [failure_reachability(
@@ -509,7 +518,8 @@ def compare_tiers_random(G, rho=np.linspace(0,1,101), repeats=25, plot=True,save
         plot=False,
         callbacks=(percent_terminal_suppliers_reachable,),
         repeats=repeats,
-        targeted_factory = attack) for tiers in trange]
+        targeted_factory = attack,
+        failure_scale = failure_scale) for tiers in trange]
 
     if plot:
 
@@ -526,9 +536,11 @@ def compare_tiers_random(G, rho=np.linspace(0,1,101), repeats=25, plot=True,save
                 title= attack.description.capitalize() + ' failures')
         plt.legend()
         if save:
-            fname = 'compare_tiers_random_' + attack.description.replace(' ','_').lower()
+            fname = 'compare_tiers/' + failure_scale + '/' + attack.description.replace(' ','_').lower()
+            os.makedirs('dat/'+os.path.dirname(fname),exist_ok=True)
             with open('dat/' + fname+'.pickle',mode='wb') as f:
                 pickle.dump(avgs,f)
+            os.makedirs('im/'+os.path.dirname(fname),exist_ok=True)
             plt.savefig('im/'+fname+'.svg')
     return avgs
 
@@ -626,6 +638,7 @@ def run_all_simulations(
         software_compare=False,
         scales_simulations=True,
         tiers_simulations=True,
+        borders=True,
         tiers=range(1,6),
         write_mode='w'):
 
@@ -642,7 +655,7 @@ def run_all_simulations(
         attacks[1].description = 'Pagerank of transpose'
         attacks[2].description = 'Pagerank'
 
-    max_repeats=24
+    max_repeats=100
     if repeats=='min':
         max_repeats=6
 
@@ -650,10 +663,10 @@ def run_all_simulations(
         repeats = dict([(random_thinning_factory,max_repeats),
             (attacks[1],1),
             (attacks[2],1),
-            (get_employee_attack,max_repeats)])
+            (get_employee_attack,(6 if max_repeats==6 else 24))])
 
     if rho_scales is None:
-        rho_scales = [full_rho, np.linspace(.9,1,101), np.linspace(.99,1,101),np.linspace(.999,1,101),np.linspace(.9999,1,101)]
+        rho_scales = [full_rho, np.linspace(.9,1,101)]#, np.linspace(.99,1,101),np.linspace(.999,1,101),np.linspace(.9999,1,101)]
 
     med_suppliers = [i.index for i in get_med_suppliers(G)]
 
@@ -661,7 +674,6 @@ def run_all_simulations(
     res.Tiers = res.Tiers.astype(int)
     res['Software included']=res['Software included'].astype(bool)
 
-    # Failure type X attack type
     if scales_simulations:
         for rho in rho_scales:
             for failure_scale in failure_scales:
@@ -671,35 +683,38 @@ def run_all_simulations(
                     avgs=failure_reachability(G,
                             rho=rho, 
                             targeted_factory=attack, 
-                            save_only=True,
+                            plot=False,
                             repeats=repeats[attack], 
                             failure_scale=failure_scale,
-                            prefix='scales_and_attacks_' + str(rho[0]) + '_' + str(rho[-1]),
                             med_suppliers=med_suppliers)
                     avgs[['Tiers','Software included']]=[5, False]
                     res=res.append(avgs,ignore_index=True)
-    res.to_hdf('all_results.h5',key='avgs',mode=write_mode)
+        res.to_hdf('all_results.h5',key='avgs',mode=write_mode)
 
-    # tiers
+        print('plotting')
+        for failure_scale in failure_scales:
+            res_temp = res[res['Failure scale'] == failure_scale]
+            for rho in rho_scales:
+                for metric in callbacks:
+                    print(failure_scale + ' ' + str(rho[0]) + ' ' + metric.description)
+                    plt.clf()
+                    attack_compare_plot(res_temp,
+                            failure_scale=failure_scale,
+                            rho_scale=rho,
+                            fname ='im/attack_compare_' + str(rho[0]) + '_' + str(rho[-1]) + '/'\
+                                    + metric.description.replace(' ','_').replace('.','').lower()\
+                                    + '/' + failure_scale + '.svg',
+                            save=True,
+                            metric=metric.description)
+
     if tiers_simulations:
-        for tier in tiers:
+        for failure_scale in failure_scales:
             for attack in attacks:
-                print(str(tier) + ' ' + (attack.description if attack else 'random'))
+                print('compare tiers ' + attack.description.lower() + ' ' + failure_scale)
                 plt.clf()
-                avgs=failure_reachability(G,rho=full_rho,tiers=tier,targeted_factory=attack, save_only=True,
-                        repeats=repeats[attack],
-                        prefix='tiers',
-                        med_suppliers=med_suppliers)
-                avgs[['Tiers','Software included']]=[tier, False]
-                res=res.append(avgs,ignore_index=True)
-    res.to_hdf('all_results.h5',key='avgs',mode='a')
-
-    print('compare_tiers_random')
-    plt.clf()
-    compare_tiers_random(G,rho=full_rho,repeats=25,plot='save')
+                compare_tiers_random(G,rho=full_rho,repeats=repeats[attack],plot='save',attack=attack,failure_scale=failure_scale)
 
     if software_compare:
-        # Software include-exclude
         graphs = (directed_igraph(no_software = True, giant=giant), 
                 directed_igraph(no_software = False, giant=giant))
         for G, inclusive  in zip(graphs, (False, True)):
@@ -716,33 +731,18 @@ def run_all_simulations(
                         prefix='software_compare')
                 avgs[['Tiers','Software included']]=[5, inclusive]
                 res=res.append(avgs,ignore_index=True)
-    res.to_hdf('all_results.h5',key='avgs',mode='a')
+        res.to_hdf('all_results.h5',key='avgs',
+                mode=('a' if scales_simulations else write_mode))
 
-    # Country-based and international
-    print('no_china_us_reachability')
-    no_china_us_reachability(G)
-    print('no_china_us_reachability')
-    no_china_us_reachability(G,include_taiwan_hong_kong=False)
-    print('close_all_borders')
-    close_all_borders(G)
-    print('industry_deletion_effects')
-    industry_deletion_effects(G)
-
-    print('plotting')
-    for failure_scale in failure_scales:
-        res_temp = res[(res.Tiers == 5) &
-                (res['Failure scale'] == failure_scale) &
-                (res['Software included'] == False)]
-        for rho in rho_scales:
-            for metric in callbacks:
-                print(failure_scale + ' ' + str(rho[0]) + ' ' + metric.description)
-                plt.clf()
-                attack_compare_plot(res_temp,
-                        failure_scale=failure_scale,
-                        rho_scale=rho,
-                        prefix='im/attack_compare',
-                        save=True,
-                        metric=metric.description)
+    if borders:
+        print('no_china_us_reachability')
+        no_china_us_reachability(G)
+        print('no_china_us_reachability')
+        no_china_us_reachability(G,include_taiwan_hong_kong=False)
+        print('close_all_borders')
+        close_all_borders(G)
+        print('industry_deletion_effects')
+        industry_deletion_effects(G)
     
     matplotlib.use(old_backend) # non-interactive ('Qt5Agg' for me)
 
