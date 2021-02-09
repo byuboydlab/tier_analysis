@@ -27,6 +27,33 @@ def get_df(cached=True,save=True):
             df.to_hdf('kayvan_data.h5',key='df')
     return df
 
+def get_6th_tier(supplier_only=True):
+
+    # Load
+    df = pd.read_excel('dat/Backward Tier 6 v2 cleaned up.xlsx',sheet_name='Sheet1')
+    df.drop(['Source(Tier 5)','Target (Tier 4)','Type','Q.Control','Suppliers (Tier 6)','Supplier Relationship (Tier 6)'],axis=1,inplace=True)
+    # Need firm industry, country, employee count, name, private/public-status, market cap, revenue
+    df.rename(columns={'Source(Tier 5)-Becomes Target of "Tier 6 Supplier"':'Target'},inplace=True)
+
+    # Get edges
+    edge_df = pd.DataFrame(columns=['Source', 'Target'])
+    for i in range(1,351):
+        dfi=df[['Target',i,str(i)+'.1']].dropna().rename(columns = {i : 'Source', str(i) + '.1' : 'Type'})
+        if supplier_only:
+            dfi=dfi[dfi.Type=='Supplier'].drop('Type',axis=1)
+        edge_df = edge_df.append(dfi,ignore_index=True)
+    edge_df.drop_duplicates(inplace=True,ignore_index=True)
+
+    # Get firms
+    # Why are there duplicate rows in df?
+    firm_df = pd.DataFrame(dict(ID=edge_df['Source']))
+    firm_df = firm_df.append(pd.DataFrame(dict(ID=edge_df['Target'])))
+    firm_df.drop_duplicates(inplace=True,ignore_index=True)
+
+    # Join it together
+
+    return firm_df,edge_df
+
 def get_firm_df():
     df = get_df()
 
