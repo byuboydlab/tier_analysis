@@ -15,25 +15,53 @@ from functools import partial
 import matplotlib
 #logging.basicConfig(filename='.med.log',level=logging.DEBUG,format='%(levelname)s:%(message)s',filemode='w')
 
-def get_df(cached=True,save=True):
+max_tiers=8
+
+def get_df(cached=True,save=True, extra_tiers=True):
     if cached:
-        df = pd.read_hdf('kayvan_data.h5')
+        print('Warning: using temporary cached 8th-tier data')
+        df = pd.read_hdf('kayvan_data_8.h5') 
     else:
         file_name='dat/Backward SC 2020-09-19 Tiers 1,2,3,4,5 Supplier Only In one Column-Size-Type v2.xlsx'
         df = pd.read_excel(file_name,sheet_name="Tier 1-5")
         df = df.drop('Type',axis=1)
         df = df.drop_duplicates(ignore_index=True)
+
+        if extra_tiers:
+            for tier in range(6,max_tiers + 1):
+                print(tier)
+                _,e_new = get_tier(tier,supplier_only=True)
+                e_new['Tier']=tier
+                f_old = df[df.Tier == tier-1].Source.unique()
+                e_new = e_new[e_new.Target.map(lambda x: x in f_old)]
+                df=df.append(e_new,ignore_index=True)
+
         if save:
             df.to_hdf('kayvan_data.h5',key='df')
+
     return df
 
-def get_6th_tier(supplier_only=True):
+def get_tier(tier=6, supplier_only=False):
+
+    # Standardize columns
+    if tier == 6:
+        fname = 'Backward Tier 6 v2 cleaned up.xlsx'
+        to_drop = ['Source(Tier 5)','Target (Tier 4)','Type','Q.Control','Suppliers (Tier 6)','Supplier Relationship (Tier 6)']
+        target_name = 'Source(Tier 5)-Becomes Target of "Tier 6 Supplier"'
+    elif tier == 7:
+        fname = 'tier_6_edges_all_supplier_types v3 Tier-7.xlsx'
+        to_drop = ['Q.Control', 'Supplier Relationship (Tier 6)']
+        target_name = 'Source(6th Tier)-becomes target for 7th tier'
+    elif tier == 8:
+        fname = 'tier_7_edges_8th tier added v2 duplicate source removed.xlsx'
+        to_drop = ['Qcontrol', 'Supplier Relationship (Tier 6)']
+        target_name = 'Source'
 
     # Load
-    df = pd.read_excel('dat/Backward Tier 6 v2 cleaned up.xlsx',sheet_name='Sheet1')
-    df.drop(['Source(Tier 5)','Target (Tier 4)','Type','Q.Control','Suppliers (Tier 6)','Supplier Relationship (Tier 6)'],axis=1,inplace=True)
+    df = pd.read_excel('dat/' + fname, sheet_name='Sheet1', engine='openpyxl') # Need to pip install openpyxl. The default engine now doesn't support .xlsx, only .xls
+    df.drop(to_drop, axis=1,inplace=True)
     # Need firm industry, country, employee count, name, private/public-status, market cap, revenue
-    df.rename(columns={'Source(Tier 5)-Becomes Target of "Tier 6 Supplier"':'Target'},inplace=True)
+    df.rename(columns={target_name:'Target'},inplace=True)
 
     # Get edges
     edge_df = pd.DataFrame(columns=['Source', 'Target'])
@@ -45,17 +73,15 @@ def get_6th_tier(supplier_only=True):
     edge_df.drop_duplicates(inplace=True,ignore_index=True)
 
     # Get firms
-    # Why are there duplicate rows in df?
     firm_df = pd.DataFrame(dict(ID=edge_df['Source']))
     firm_df = firm_df.append(pd.DataFrame(dict(ID=edge_df['Target'])))
     firm_df.drop_duplicates(inplace=True,ignore_index=True)
 
-    # Join it together
-
     return firm_df,edge_df
 
-def get_firm_df():
-    df = get_df()
+def get_firm_df(df=None):
+    if df is None:
+        df = get_df()
 
     firm_df = pd.DataFrame(dict(
         ID=df['Source'],
@@ -132,7 +158,7 @@ def directed_igraph(
         G.add_edges(edge_df[['Source','Target']].itertuples(index=False))
 
     G.es['tier'] = edge_df.Tier
-    #G.simplify(loops=False, combine_edges='min') # use min to keep smaller tier value. probably unnecessary
+    G.simplify(loops=False, combine_edges='min') # use min to keep smaller tier value.
 
     G.vs['tier_set'] = [set([e['tier'] for e in n.all_edges()])
         for n in G.vs]
@@ -420,7 +446,7 @@ def attack_compare_plot(
         fname='temp.svg',
         save=False,
         failure_scale='firm',
-        tiers=5,
+        tiers=max_tiers,
         software_included=False,
         metric=percent_terminal_suppliers_reachable.description,
         rho_scale=np.linspace(.3,1,71)):
@@ -454,7 +480,7 @@ def attack_compare_plot(
 
 def failure_reachability(G,
         rho=np.linspace(0,1,10),
-        tiers=5,
+        tiers=max_tiers,
         plot=True,
         save_only=False,
         repeats=1,
@@ -470,7 +496,7 @@ def failure_reachability(G,
     if parallel == 'auto' or parallel == True:
         parallel = 'repeat' if repeats > 1 else 'rho'
 
-    if tiers < 5:
+    if tiers < max_tiers:
         G = deepcopy(G)
         G.delete_edges(G.es(tier_ge = tiers+1))
 
@@ -502,14 +528,14 @@ def failure_reachability(G,
     if plot:
         plot_title = targeted_factory.description.capitalize() + ' '\
                 + failure_scale + ' failures'\
-                + ((' ' + str(tiers) + ' tiers') if tiers < 5 else '')\
+                + ((' ' + str(tiers) + ' tiers') if tiers < max_tiers else '')\
                 + ((' excluding software firms' if G_has_no_software_flag else ' including software firms') if G_has_no_software_flag is not None else '')
         fname = prefix + '/'\
                 + failure_scale\
                 + '_' + targeted_factory.description.replace(' ','_').lower()\
                 + '_range_' + str(rho[0]) + '_' + str(rho[-1])\
                 + '_repeats_' + str(repeats)\
-                + ('_tiers_' + str(tiers) if tiers < 5 else '')\
+                + ('_tiers_' + str(tiers) if tiers < max_tiers else '')\
                 + (('software_excluded' if G_has_no_software_flag else 'software_included') if G_has_no_software_flag is not None else '')
         if save_only:
             os.makedirs(os.path.dirname('dat/'  + fname),exist_ok=True)
@@ -535,9 +561,9 @@ def get_plural(x):
     else:
         raise NotImplementedError
 
-def compare_tiers_random(G, rho=np.linspace(0,1,101), repeats=25, plot=True,save=True, attack = random_thinning_factory, failure_scale='firm'):
+def compare_tiers_random(G, rho=np.linspace(0,1,101), repeats=24, plot=True,save=True, attack = random_thinning_factory, failure_scale='firm'):
     
-    trange = range(1,6)
+    trange = range(1,max_tiers+1)
     avgs = [failure_reachability(
         G,
         rho=rho,
@@ -547,6 +573,12 @@ def compare_tiers_random(G, rho=np.linspace(0,1,101), repeats=25, plot=True,save
         repeats=repeats,
         targeted_factory = attack,
         failure_scale = failure_scale) for tiers in trange]
+
+    fname = 'compare_tiers/' + failure_scale + '/' + attack.description.replace(' ','_').lower()
+    os.makedirs('dat/'+os.path.dirname(fname),exist_ok=True)
+    with open('dat/' + fname+'.pickle',mode='wb') as f:
+        pickle.dump(avgs,f)
+
 
     if plot:
 
@@ -563,10 +595,6 @@ def compare_tiers_random(G, rho=np.linspace(0,1,101), repeats=25, plot=True,save
                 title= attack.description.capitalize() + ' failures')
         plt.legend()
         if save:
-            fname = 'compare_tiers/' + failure_scale + '/' + attack.description.replace(' ','_').lower()
-            os.makedirs('dat/'+os.path.dirname(fname),exist_ok=True)
-            with open('dat/' + fname+'.pickle',mode='wb') as f:
-                pickle.dump(avgs,f)
             os.makedirs('im/'+os.path.dirname(fname),exist_ok=True)
             plt.savefig('im/'+fname+'.svg')
     return avgs
@@ -666,7 +694,7 @@ def run_all_simulations(
         scales_simulations=True,
         tiers_simulations=True,
         borders=True,
-        tiers=range(1,6),
+        tiers=range(1,max_tiers+1),
         write_mode='w'):
 
     if G is None:
@@ -714,7 +742,7 @@ def run_all_simulations(
                             repeats=repeats[attack], 
                             failure_scale=failure_scale,
                             med_suppliers=med_suppliers)
-                    avgs[['Tiers','Software included']]=[5, False]
+                    avgs[['Tiers','Software included']]=[max_tiers, False]
                     res=res.append(avgs,ignore_index=True)
         res.to_hdf('all_results.h5',key='avgs',mode=write_mode)
 
@@ -756,7 +784,7 @@ def run_all_simulations(
                         failure_scale='firm',
                         G_has_no_software_flag = (not inclusive),
                         prefix='software_compare')
-                avgs[['Tiers','Software included']]=[5, inclusive]
+                avgs[['Tiers','Software included']]=[max_tiers, inclusive]
                 res=res.append(avgs,ignore_index=True)
         res.to_hdf('all_results.h5',key='avgs',
                 mode=('a' if scales_simulations else write_mode))
