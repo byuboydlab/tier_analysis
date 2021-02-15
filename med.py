@@ -15,17 +15,26 @@ from functools import partial
 import matplotlib
 #logging.basicConfig(filename='.med.log',level=logging.DEBUG,format='%(levelname)s:%(message)s',filemode='w')
 
-max_tiers=8
+max_tiers=10
+print("Using " + str(max_tiers) + " tiers")
 
-def get_df(cached=True,save=True, extra_tiers=True):
+def get_df(cached=True,save=True, extra_tiers=False):
     if cached:
-        print('Warning: using temporary cached 8th-tier data')
-        df = pd.read_hdf('kayvan_data_8.h5') 
+        df = pd.read_hdf('kayvan_data.h5') 
     else:
         file_name='dat/Backward SC 2020-09-19 Tiers 1,2,3,4,5 Supplier Only In one Column-Size-Type v2.xlsx'
         df = pd.read_excel(file_name,sheet_name="Tier 1-5")
         df = df.drop('Type',axis=1)
         df = df.drop_duplicates(ignore_index=True)
+
+        dff = pd.read_excel('dat/firms_tier_6_thru_10 v2 no-codes.xlsx' ,sheet_name='Sheet1')
+        dff = dff.drop('Unnamed: 0',axis=1)
+        dff = dff.rename({'Source Name':'Source NAME','Target Name':'Target NAME',
+            'Source MktCap': 'SourceSizeMktCap','Target MktCap': 'TargetSizeMktCap',
+            'Source Employees Global':'SourceSizeEmployeesGlobal', 'Target Employees Global':'TargetSizeEmployeesGlobal',
+            'Source Type':'SourceType', 'Target Type':'TargetType'},axis=1)
+
+        df = df.append(dff,ignore_index=True)
 
         if extra_tiers:
             for tier in range(6,max_tiers + 1):
@@ -35,6 +44,14 @@ def get_df(cached=True,save=True, extra_tiers=True):
                 f_old = df[df.Tier == tier-1].Source.unique()
                 e_new = e_new[e_new.Target.map(lambda x: x in f_old)]
                 df=df.append(e_new,ignore_index=True)
+        df.drop(list(df.filter(regex='Unnamed')),axis=1,inplace=True)
+
+        # resolve NaNs for better typing
+        for col in ['Source Country', 'Target Country', 'Source NAME', 'Target NAME', 'Source Industry', 'Target Industry', 'SourceType', 'TargetType']:
+            df[col] = df[col].astype(str)
+        for col in ['SourceSizeMktCap', 'TargetSizeMktCap', 'SourceSizeRevenue', 'TargetSizeRevenue', 'SourceSizeEmployeesGlobal', 'TargetSizeEmployeesGlobal']:
+            df.loc[df[col] == '(Invalid Identifier)',col] = math.nan
+            df[col]=df[col].astype(float)
 
         if save:
             df.to_hdf('kayvan_data.h5',key='df')
@@ -56,11 +73,18 @@ def get_tier(tier=6, supplier_only=False):
         fname = 'tier_7_edges_8th tier added v2 duplicate source removed.xlsx'
         to_drop = ['Qcontrol', 'Supplier Relationship (Tier 6)']
         target_name = 'Source'
+    elif tier == 9:
+        fname = 'tier_8_firms v2 9th tier added.xlsx'
+        to_drop = ['Qcontrol', 'Supplier Relationship (Tier 6)']
+        target_name = 'Source'
+    elif tier == 10:
+        fname = 'tier_9_edges v2 Tier 10 added.xlsx'
+        to_drop = ['Supplier Relationship (Tier 6)']
+        target_name = 'Source'
 
     # Load
     df = pd.read_excel('dat/' + fname, sheet_name='Sheet1', engine='openpyxl') # Need to pip install openpyxl. The default engine now doesn't support .xlsx, only .xls
     df.drop(to_drop, axis=1,inplace=True)
-    # Need firm industry, country, employee count, name, private/public-status, market cap, revenue
     df.rename(columns={target_name:'Target'},inplace=True)
 
     # Get edges
@@ -83,13 +107,17 @@ def get_firm_df(df=None):
     if df is None:
         df = get_df()
 
+    df = df.rename({'Source Name':'Source NAME','Target Name':'Target NAME',
+        'Source MktCap': 'SourceSizeMktCap','Target MktCap': 'TargetSizeMktCap',
+        'Source Employees Global':'SourceSizeEmployeesGlobal', 'Target Employees Global':'TargetSizeEmployeesGlobal',
+        'Source Type':'SourceType', 'Target Type':'TargetType'},axis=1)
+
     firm_df = pd.DataFrame(dict(
         ID=df['Source'],
         name=df['Source NAME'],
         industry=df['Source Industry'],
         country=df['Source Country'],
         market_cap=df['SourceSizeMktCap'],
-        revenue=df['SourceSizeRevenue'],
         employees=df['SourceSizeEmployeesGlobal'],
         private=df['SourceType']))
     firm_df = firm_df.append(pd.DataFrame(dict(
@@ -98,22 +126,22 @@ def get_firm_df(df=None):
         industry=df['Target Industry'],
         country=df['Target Country'],
         market_cap=df['TargetSizeMktCap'],
-        revenue=df['TargetSizeRevenue'],
         employees=df['TargetSizeEmployeesGlobal'],
         private=df['TargetType'])))
 
     for col in ['country', 'industry']:
         firm_df[col] = firm_df[col].astype(str) # make NaNs into string nan
     firm_df.private = firm_df.private == 'Private Company'
-    firm_df = firm_df.drop_duplicates() # does this always keep the first one? wondering about an index error
-    firm_df = firm_df.set_index('ID')
+    firm_df = firm_df.drop_duplicates(ignore_index=True)
+    firm_df = firm_df.groupby('ID').last() # name, MktCap, Employee variations, likely due to multiple queries by Kayvan. Likely unimportant
     firm_df['country-industry'] = firm_df['country'] + ' '  + firm_df['industry']
     firm_df.loc[firm_df['employees'] == '(Invalid Identifier)','employees'] = math.nan
 
     return firm_df
 
-def get_edge_df():
-    df = get_df()
+def get_edge_df(df=None):
+    if df is None:
+        df = get_df()
     return df[['Source','Target','Tier']]
 
 def edges():
@@ -136,54 +164,98 @@ def k_core(G,k=1,fname="k_core.gml"):
     save(G,fname)
     return G, core_ind
 
-def directed_igraph(
+def directed_igraph(*,
         giant=True,
         no_software=True,
-        reverse_direction=False,
         include_private=True,
         cut_low_terminal_suppliers=True,
-        reduced_density=False):
+        reduced_density=False,
+        clean_tiers=True):
 
-    firm_df = get_firm_df()
-    edge_df = get_edge_df()
+    df = get_df()
+    firm_df = get_firm_df(df)
+    edge_df = get_edge_df(df)
+    print('Finished edge df')
     G = ig.Graph(directed=True)
     G.add_vertices(firm_df.index)
     G.vs['firm name']=firm_df['name']
-    for attr in ['industry', 'country', 'country-industry','market_cap','revenue','employees','private']:
+    for attr in ['industry', 'country', 'country-industry','market_cap','employees','private']:
         G.vs[attr]=firm_df[attr]
 
-    if reverse_direction:
-        G.add_edges(edge_df[['Target','Source']].itertuples(index=False))
-    else:
-        G.add_edges(edge_df[['Source','Target']].itertuples(index=False))
+    G.add_edges(edge_df[['Source','Target']].itertuples(index=False))
+    print('added edges')
 
     G.es['tier'] = edge_df.Tier
     G.simplify(loops=False, combine_edges='min') # use min to keep smaller tier value.
-
-    G.vs['tier_set'] = [set([e['tier'] for e in n.all_edges()])
-        for n in G.vs]
+    print('done simplifying')
 
     if no_software:
         G=G.induced_subgraph(
                 [x.index for x in 
                     G.vs(lambda x : x['industry'] not in 
                         ['Application Software', 'IT Consulting and Other Services', 'Systems Software', 'Advertising', 'Movies and Entertainment', 'Interactive Home Entertainment'])])
+    print('done removing software')
+
+    if cut_low_terminal_suppliers: # TODO: move this lower, since the high tiers can change the answer?
+        med_suppliers = get_med_suppliers(G) # this is not the same as when we did clean_tiers!
+        t = [get_terminal_suppliers(i,G) for i in med_suppliers]
+        to_delete = [m for m,tt in zip(med_suppliers,t) if len(tt) < 31] # 31 because there is a jump in len(tt) here
+        G.delete_vertices(to_delete)
+        print('done cutting low terminal suppliers')
+
+    if clean_tiers: # remove accidental extra nodes not tracing back to tier 0
+        print('cleaning tiers')
+        med_suppliers = get_med_suppliers(G)
+        to_keep = med_suppliers
+        curr_tier = to_keep
+        G.vs['clean_tier'] = [0]*G.vcount()
+        for tier in range(1,max_tiers+1):
+
+            # get next tier (as a list with duplicates)
+            next_tier = []
+            for v in curr_tier:
+                next_tier += v.predecessors()
+
+            #  the next current tier will be the new nodes we just found
+            curr_tier = set(next_tier).difference(to_keep)
+            for v in curr_tier:
+                v['clean_tier'] = tier
+
+            # add next tier to the list of nodes to keep
+            to_keep = set(to_keep).union(curr_tier)
+        G = G.induced_subgraph(to_keep)
 
     if giant:
-        G=G.components(mode='WEAK').giant()
+        G=G.components(mode='WEAK').giant() # this turns out to be a no-op if you do clean-tiers with 10 tiers
+
+    # TODO: figure out what to do about the tier attributes. There are really multiple notions of "tier" here.
+    # --Kayvan gave me a tier edge attribute. This is whatever tier cam up with in data collection. This MIGHT correspond to how many times he queried the SEC filings database, depending on whether he did weird things like excluding suppliers or something
+    # --I can compute tier by counting up from med suppliers, possibly after removing certain elements
+    # --When I filter by Kayvan's tier edge attribute (projected to nodes by taking a min over out-edges), it may not agree with mine, both because I filtered nodes and because Kayvan may not have been consistent. I may need a different way to recude tiers
+    G.vs['tier_set'] = [
+                            set([e['tier'] for e in n.out_edges()])
+                        for n in G.vs]
+    G.vs['tier'] = [min(x['tier_set'],default=0) for x in G.vs]
+    for v in get_med_suppliers(G):
+        v['tier']=0
+        v['tier_set'].add(0)
+
+    if reduced_density:
+        print('Reducing density')
+        G=random_thinning_factory(G)(G,reduced_density) # .2 works. .1 might have no med suppliers
 
     G.vs['id'] = list(range(G.vcount())) # helps when passing to subgraphs
     med_suppliers = get_med_suppliers(G)
     G.vs['is_medical'] = [i in med_suppliers for i in range(G.vcount())]
 
-    if cut_low_terminal_suppliers:
-        t = [get_terminal_suppliers(i,G) for i in med_suppliers]
-        to_delete = [m for m,tt in zip(med_suppliers,t) if len(tt) < 31] # 31 because there is a jump in len(tt) here
-        G.delete_vertices(to_delete)
-        G.vs['id'] = list(range(G.vcount())) # recalculate
-
-    if reduced_density:
-        G=random_thinning_factory(G)(G,reduced_density) # .2 works. .1 might have no med suppliers
+    G.reversed = False
+    def reverse():
+        tier = dict(tier=G.es['tier'])
+        edges = [tuple(reversed(e.tuple)) for e in G.es]
+        G.delete_edges(None)
+        G.add_edges(edges,tier)
+        G.reversed = not G.reversed
+    G.reverse = reverse
 
     return G
 
@@ -202,21 +274,20 @@ def get_terminal_suppliers(i,G):
     sccs_l = list(sccs)
     terminal_nodes = [sccs_l[i] for i in terminal_components]
     terminal_nodes = itertools.chain(*terminal_nodes)
-    terminal_nodes = [d.vs[i]['id'] for i in terminal_nodes]
+    terminal_nodes = [d.vs[i].index for i in terminal_nodes]
 
     return set(terminal_nodes)
 
-def get_u(i,G_thin,med_suppliers_thin=None):
-    if type(i) is ig.Vertex:
-        i = i.index
+def get_u(i_thick,G_thin,med_suppliers_thin=None,direction='IN'):
+    if type(i_thick) is ig.Vertex:
+        i_thick = i_thick.index # TODO Actually, is this going to lead to a logic mistake? I guess not as long as we only pass in a vertex from the large graph
 
     try:
-        i_thin = med_suppliers_thin[i] if med_suppliers_thin else G_thin.vs.find(id=i).index
+        i_thin = med_suppliers_thin[i_thick] if med_suppliers_thin else G_thin.vs.find(id=i_thick).index
     except: # the node we want has been deleted
         return set()
-        #return False
 
-    u = G_thin.bfs(i_thin,mode='IN')
+    u = G_thin.bfs(i_thin,mode=direction)
     u = u[0][:u[1][-1]] # remove trailing zeros
 
     ids = G_thin.vs['id']
@@ -320,9 +391,11 @@ def target_by_attribute(G,attr):
     return targeted
 
 def get_employee_attack(G):
-    G=deepcopy(G)
-    G.vs['employees_imputed'] = [math.isnan(x) for x in G.vs['employees']]
-    size_dist_private = np.array([x['employees'] for x in G.vs if x['private'] and not math.isnan(x['employees'])])
+    try:
+        G.vs['employeed_imputed']
+    except:
+        G.vs['employees_imputed'] = [math.isnan(x) for x in G.vs['employees']]
+    size_dist_private = np.array([x['employees'] for x in G.vs if x['private'] and not x['employees_imputed']])
     imputed_size = np.random.choice(size_dist_private,len(G.vs(employees_imputed_eq = True)))
     for v,s in zip(G.vs(employees_imputed_eq = True),imputed_size):
         v['employees'] = s
@@ -341,22 +414,19 @@ def get_pagerank_attack(G,transpose=True):
         G[attrname]
     except:
         if transpose:
-            Gt=deepcopy(G)
-            tier = dict(tier=Gt.es['tier'])
-            edges = [tuple(reversed(e.tuple)) for e in G.es]
-            Gt.delete_edges(None)
-            Gt.add_edges(edges,tier)
-            G.vs[attrname]=Gt.pagerank()
-            del Gt # don't accidentally reference later
+            G.reverse()
+            pr = G.pagerank()
+            G.reverse()
         else:
-            G.vs[attrname]=G.pagerank()
+            pr=G.pagerank()
+        G.vs[attrname]=pr
 
     return target_by_attribute(G,attrname)
 get_pagerank_attack.description='Pagerank of transpose'
 
 def get_pagerank_attack_no_transpose(G):
     return get_pagerank_attack(G,transpose=False)
-get_pagerank_attack.description='Pagerank'
+get_pagerank_attack_no_transpose.description='Pagerank'
 
 def get_null_attack(G):
     def null_attack(G,r,failure_scale='firm'):
@@ -372,9 +442,14 @@ def impute_industry(G):
         v['industry'] = s
     return G
 
-dv = ipyparallel.Client()[:] # This should be global (or a singleton) to avoid an error with too many files open https://github.com/ipython/ipython/issues/6039
-dv.block=False
-dv.use_dill()
+has_ipyparallel = True
+try:
+    dv = ipyparallel.Client()[:] # This should be global (or a singleton) to avoid an error with too many files open https://github.com/ipython/ipython/issues/6039
+    dv.block=False
+    dv.use_dill()
+except:
+    has_ipyparallel = False
+    print("Loading without ipyparallel support")
 
 callbacks = [
 some_terminal_suppliers_reachable,
@@ -480,7 +555,6 @@ def attack_compare_plot(
 
 def failure_reachability(G,
         rho=np.linspace(0,1,10),
-        tiers=max_tiers,
         plot=True,
         save_only=False,
         repeats=1,
@@ -496,10 +570,6 @@ def failure_reachability(G,
     if parallel == 'auto' or parallel == True:
         parallel = 'repeat' if repeats > 1 else 'rho'
 
-    if tiers < max_tiers:
-        G = deepcopy(G)
-        G.delete_edges(G.es(tier_ge = tiers+1))
-
     if med_suppliers is None:
         med_suppliers = [i.index for i in get_med_suppliers(G)]
 
@@ -510,11 +580,11 @@ def failure_reachability(G,
         t = [get_terminal_suppliers(i,G) for i in med_suppliers]
         with open('.cached_t','wb') as f: pickle.dump(t,f)
 
-    args = [deepcopy([rho,G,med_suppliers,t,failure_scale,callbacks,targeted_factory]) for _ in range(repeats)]
+    args = [deepcopy([rho,G,med_suppliers,t,failure_scale,callbacks,targeted_factory]) for _ in range(repeats)] # No need to precompute and store all this.
 
     if failure_scale == 'industry':
         for a in args:
-            a[1] = impute_industry(deepcopy(G))
+            a[1] = impute_industry(G)
 
     if parallel == 'repeat':
         avgs = dv.map(failure_reachability_sweep,
@@ -528,14 +598,12 @@ def failure_reachability(G,
     if plot:
         plot_title = targeted_factory.description.capitalize() + ' '\
                 + failure_scale + ' failures'\
-                + ((' ' + str(tiers) + ' tiers') if tiers < max_tiers else '')\
                 + ((' excluding software firms' if G_has_no_software_flag else ' including software firms') if G_has_no_software_flag is not None else '')
         fname = prefix + '/'\
                 + failure_scale\
                 + '_' + targeted_factory.description.replace(' ','_').lower()\
                 + '_range_' + str(rho[0]) + '_' + str(rho[-1])\
                 + '_repeats_' + str(repeats)\
-                + ('_tiers_' + str(tiers) if tiers < max_tiers else '')\
                 + (('software_excluded' if G_has_no_software_flag else 'software_included') if G_has_no_software_flag is not None else '')
         if save_only:
             os.makedirs(os.path.dirname('dat/'  + fname),exist_ok=True)
@@ -561,18 +629,28 @@ def get_plural(x):
     else:
         raise NotImplementedError
 
-def compare_tiers_random(G, rho=np.linspace(0,1,101), repeats=24, plot=True,save=True, attack = random_thinning_factory, failure_scale='firm'):
-    
+def reduce_tiers(G,tiers):
+    G.delete_edges(G.es(tier_ge = tiers+1))
+    G.delete_vertices(G.vs(tier_ge = tiers+1))
+
+def compare_tiers(G, rho=np.linspace(0,1,101), repeats=24, plot=True,save=True, attack = random_thinning_factory, failure_scale='firm'):
+    G = deepcopy(G)
     trange = range(1,max_tiers+1)
-    avgs = [failure_reachability(
-        G,
-        rho=rho,
-        tiers=tiers,
-        plot=False,
-        callbacks=(percent_terminal_suppliers_reachable,),
-        repeats=repeats,
-        targeted_factory = attack,
-        failure_scale = failure_scale) for tiers in trange]
+    avgs = []
+    for tiers in reversed(trange):
+        print(tiers)
+        reduce_tiers(G,tiers)
+        avgs.append(
+                failure_reachability(
+                    G,
+                    rho=rho,
+                    plot=False,
+                    callbacks=(percent_terminal_suppliers_reachable,),
+                    repeats=repeats,
+                    targeted_factory = attack,
+                    failure_scale = failure_scale))
+        with open('temp.pickle',mode='wb') as f: # save in case there is a crash
+            pickle.dump(avgs,f)
 
     fname = 'compare_tiers/' + failure_scale + '/' + attack.description.replace(' ','_').lower()
     os.makedirs('dat/'+os.path.dirname(fname),exist_ok=True)
@@ -767,7 +845,7 @@ def run_all_simulations(
             for attack in attacks:
                 print('compare tiers ' + attack.description.lower() + ' ' + failure_scale)
                 plt.clf()
-                compare_tiers_random(G,rho=full_rho,repeats=repeats[attack],plot='save',attack=attack,failure_scale=failure_scale)
+                compare_tiers(G,rho=full_rho,repeats=repeats[attack],plot='save',attack=attack,failure_scale=failure_scale)
 
     if software_compare:
         graphs = (directed_igraph(no_software = True, giant=giant), 
