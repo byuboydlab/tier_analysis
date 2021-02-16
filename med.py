@@ -16,25 +16,21 @@ import matplotlib
 #logging.basicConfig(filename='.med.log',level=logging.DEBUG,format='%(levelname)s:%(message)s',filemode='w')
 
 max_tiers=10
-print("Using " + str(max_tiers) + " tiers")
 
 def get_df(cached=True,save=True, extra_tiers=False):
     if cached:
         df = pd.read_hdf('kayvan_data.h5') 
     else:
-        file_name='dat/Backward SC 2020-09-19 Tiers 1,2,3,4,5 Supplier Only In one Column-Size-Type v2.xlsx'
-        df = pd.read_excel(file_name,sheet_name="Tier 1-5")
+        file_name='dat/firms_tier_1_thru_10 v4 New Firms Data 2021-02-15.xlsx'
+
+        df = pd.read_excel(file_name,sheet_name="Sheet1")
         df = df.drop('Type',axis=1)
         df = df.drop_duplicates(ignore_index=True)
-
-        dff = pd.read_excel('dat/firms_tier_6_thru_10 v2 no-codes.xlsx' ,sheet_name='Sheet1')
-        dff = dff.drop('Unnamed: 0',axis=1)
-        dff = dff.rename({'Source Name':'Source NAME','Target Name':'Target NAME',
+        df = df.rename({'Source Name':'Source NAME','Target Name':'Target NAME',
             'Source MktCap': 'SourceSizeMktCap','Target MktCap': 'TargetSizeMktCap',
             'Source Employees Global':'SourceSizeEmployeesGlobal', 'Target Employees Global':'TargetSizeEmployeesGlobal',
+            'SourceTotalRevenue':'SourceSizeRevenue','TargetTotalRevenue':'TargetSizeRevenue',
             'Source Type':'SourceType', 'Target Type':'TargetType'},axis=1)
-
-        df = df.append(dff,ignore_index=True)
 
         if extra_tiers:
             for tier in range(6,max_tiers + 1):
@@ -103,6 +99,15 @@ def get_tier(tier=6, supplier_only=False):
 
     return firm_df,edge_df
 
+def get_shortcut_edges(G):
+    fdf = get_firm_df()
+    fdf = pd.concat([fdf, pd.DataFrame(dict(tier=G.vs['tier'],clean_tier=G.vs['clean_tier']),index=G.vs['name'])],axis=1)
+    df = get_df()
+    df['Source tier'] = df.Source.map(lambda x : fdf.loc[x]['tier'])
+    df['Target tier'] = df.Target.map(lambda x : fdf.loc[x]['tier'])
+
+    return df[df['Source tier'] > df['Target tier'] + 1]
+
 def get_firm_df(df=None):
     if df is None:
         df = get_df()
@@ -133,7 +138,7 @@ def get_firm_df(df=None):
         firm_df[col] = firm_df[col].astype(str) # make NaNs into string nan
     firm_df.private = firm_df.private == 'Private Company'
     firm_df = firm_df.drop_duplicates(ignore_index=True)
-    firm_df = firm_df.groupby('ID').last() # name, MktCap, Employee variations, likely due to multiple queries by Kayvan. Likely unimportant
+    firm_df.set_index('ID',inplace=True)
     firm_df['country-industry'] = firm_df['country'] + ' '  + firm_df['industry']
     firm_df.loc[firm_df['employees'] == '(Invalid Identifier)','employees'] = math.nan
 
@@ -175,7 +180,6 @@ def directed_igraph(*,
     df = get_df()
     firm_df = get_firm_df(df)
     edge_df = get_edge_df(df)
-    print('Finished edge df')
     G = ig.Graph(directed=True)
     G.add_vertices(firm_df.index)
     G.vs['firm name']=firm_df['name']
@@ -183,7 +187,6 @@ def directed_igraph(*,
         G.vs[attr]=firm_df[attr]
 
     G.add_edges(edge_df[['Source','Target']].itertuples(index=False))
-    print('added edges')
 
     G.es['tier'] = edge_df.Tier
     G.simplify(loops=False, combine_edges='min') # use min to keep smaller tier value.
@@ -196,7 +199,7 @@ def directed_igraph(*,
                         ['Application Software', 'IT Consulting and Other Services', 'Systems Software', 'Advertising', 'Movies and Entertainment', 'Interactive Home Entertainment'])])
     print('done removing software')
 
-    if cut_low_terminal_suppliers: # TODO: move this lower, since the high tiers can change the answer?
+    if cut_low_terminal_suppliers:
         med_suppliers = get_med_suppliers(G) # this is not the same as when we did clean_tiers!
         t = [get_terminal_suppliers(i,G) for i in med_suppliers]
         to_delete = [m for m,tt in zip(med_suppliers,t) if len(tt) < 31] # 31 because there is a jump in len(tt) here
@@ -223,19 +226,20 @@ def directed_igraph(*,
 
             # add next tier to the list of nodes to keep
             to_keep = set(to_keep).union(curr_tier)
+
+        G.vs['tier'] = G.vs['clean_tier']
+        for e in G.es:
+            e['tier'] = e.source_vertex['tier']
+
         G = G.induced_subgraph(to_keep)
+    else:
+        G.vs['tier_set'] = [{e['tier'] for e in n.out_edges()}
+                                for n in G.vs]
+        G.vs['tier'] = [min(x['tier_set'],default=0) for x in G.vs]
 
     if giant:
         G=G.components(mode='WEAK').giant() # this turns out to be a no-op if you do clean-tiers with 10 tiers
 
-    # TODO: figure out what to do about the tier attributes. There are really multiple notions of "tier" here.
-    # --Kayvan gave me a tier edge attribute. This is whatever tier cam up with in data collection. This MIGHT correspond to how many times he queried the SEC filings database, depending on whether he did weird things like excluding suppliers or something
-    # --I can compute tier by counting up from med suppliers, possibly after removing certain elements
-    # --When I filter by Kayvan's tier edge attribute (projected to nodes by taking a min over out-edges), it may not agree with mine, both because I filtered nodes and because Kayvan may not have been consistent. I may need a different way to recude tiers
-    G.vs['tier_set'] = [
-                            set([e['tier'] for e in n.out_edges()])
-                        for n in G.vs]
-    G.vs['tier'] = [min(x['tier_set'],default=0) for x in G.vs]
     for v in get_med_suppliers(G):
         v['tier']=0
         v['tier_set'].add(0)
@@ -435,12 +439,15 @@ def get_null_attack(G):
 get_null_attack.description='Null'#-targeted'
 
 def impute_industry(G):
-    G.vs['industry_imputed'] = [x == 'nan' for x in G.vs['industry']]
-    industry_dist = np.array([x['industry'] for x in G.vs if x['industry'] != 'nan'])
+    try:
+        G['industry_imputed']
+    except:
+        G.vs['industry_imputed'] = [x == 'nan' for x in G.vs['industry']]
+
+    industry_dist = np.array([x['industry'] for x in G.vs if not x['industry_imputed']])
     imputed_industry = np.random.choice(industry_dist,len(G.vs(industry_imputed_eq = True)),replace=True)
     for v,s in zip(G.vs(industry_imputed_eq = True),imputed_industry):
         v['industry'] = s
-    return G
 
 has_ipyparallel = True
 try:
@@ -478,6 +485,10 @@ def failure_reachability_single(r,G,med_suppliers=False,ts=False,failure_scale='
     return res
 
 def failure_reachability_sweep(rho,G,med_suppliers=False,ts=False,failure_scale='firm',callbacks=callbacks,targeted_factory=random_thinning_factory,parallel=False):
+
+    if failure_scale == 'industry':
+        G = deepcopy(G)
+        impute_industry(G)
 
     if not med_suppliers:
         med_suppliers=[i.index for i in get_med_suppliers(G)]
@@ -580,11 +591,7 @@ def failure_reachability(G,
         t = [get_terminal_suppliers(i,G) for i in med_suppliers]
         with open('.cached_t','wb') as f: pickle.dump(t,f)
 
-    args = [deepcopy([rho,G,med_suppliers,t,failure_scale,callbacks,targeted_factory]) for _ in range(repeats)] # No need to precompute and store all this.
-
-    if failure_scale == 'industry':
-        for a in args:
-            a[1] = impute_industry(G)
+    args = [[rho,G,med_suppliers,t,failure_scale,callbacks,targeted_factory]] * repeats # Beware here that the copy here is very shallow
 
     if parallel == 'repeat':
         avgs = dv.map(failure_reachability_sweep,
