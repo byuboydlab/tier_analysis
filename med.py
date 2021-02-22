@@ -123,7 +123,7 @@ def get_firm_df(df=None):
         industry=df['Source Industry'],
         country=df['Source Country'],
         market_cap=df['SourceSizeMktCap'],
-        employees=df['SourceSizeEmployeesGlobal'],
+        Employees=df['SourceSizeEmployeesGlobal'],
         private=df['SourceType']))
     firm_df = firm_df.append(pd.DataFrame(dict(
         ID=df['Target'],
@@ -131,7 +131,7 @@ def get_firm_df(df=None):
         industry=df['Target Industry'],
         country=df['Target Country'],
         market_cap=df['TargetSizeMktCap'],
-        employees=df['TargetSizeEmployeesGlobal'],
+        Employees=df['TargetSizeEmployeesGlobal'],
         private=df['TargetType'])))
 
     for col in ['country', 'industry']:
@@ -140,7 +140,7 @@ def get_firm_df(df=None):
     firm_df = firm_df.drop_duplicates(ignore_index=True)
     firm_df.set_index('ID',inplace=True)
     firm_df['country-industry'] = firm_df['country'] + ' '  + firm_df['industry']
-    firm_df.loc[firm_df['employees'] == '(Invalid Identifier)','employees'] = math.nan
+    firm_df.loc[firm_df['Employees'] == '(Invalid Identifier)','Employees'] = math.nan
 
     return firm_df
 
@@ -186,7 +186,7 @@ def directed_igraph(*,
     G = ig.Graph(directed=True)
     G.add_vertices(firm_df.index)
     G.vs['firm name']=firm_df['name']
-    for attr in ['industry', 'country', 'country-industry','market_cap','employees','private']:
+    for attr in ['industry', 'country', 'country-industry','market_cap','Employees','private']:
         G.vs[attr]=firm_df[attr]
 
     G.add_edges(edge_df[['Source','Target']].itertuples(index=False))
@@ -289,9 +289,14 @@ def get_terminal_suppliers(i,G):
 
     return terminal_nodes
 
+# All I need now is a way to efficiently get t_thin (indices of t in G_thin)
+def is_reachable(t_thin,i_thin,G_thin):
+    return np.array(G_thin.shortest_paths(i_thin,t_thin)) < np.inf
+
 # TODO: make this faster:
 #   Change G to the quotient graph (once in the calling function, passed in as an optional argument) G.components().cluster_graph()
 #   Then since it is a DAG maybe there is a smarter way to do this
+#   Try using is_reachable above instead
 def get_u(i_thick,G_thin,med_suppliers_thin=None,direction='IN'):
     if type(i_thick) is ig.Vertex:
         i_thick = i_thick.index 
@@ -305,7 +310,7 @@ def get_u(i_thick,G_thin,med_suppliers_thin=None,direction='IN'):
     u = u[0][:u[1][-1]] # remove trailing zeros
 
     ids = G_thin.vs['id']
-    return {ids[i] for i in u} # TODO: see if there is a fancy python function for indexing like this. Maybe map or something
+    return {ids[i] for i in u} 
 
 def is_increasing(l):
     if len(l) < 2:
@@ -333,7 +338,6 @@ def all_terminal_suppliers_reachable(i,G,G_thin,t=None,u=None):
     return t.issubset(u)
 all_terminal_suppliers_reachable.description='All end suppliers reachable'
 
-# TODO: why does this not return 1 when G=G_thin. And for tier 9, why only 20%
 def percent_terminal_suppliers_reachable(i,G,G_thin,t=None,u=None):
     if t is None: t = get_terminal_suppliers(i,G)
     if u is None: u = get_u(i,G_thin)
@@ -395,7 +399,7 @@ def target_by_attribute(G,attr):
         sorted_attr_inds[failure_scale]  = sorted(set(G.vs[failure_scale ]), key=lambda x : sum(G.vs(lambda v : v[failure_scale] == x)[attr]))
 
     def targeted(G,r,failure_scale='firm'):
-        to_keep = sorted_attr_inds[failure_scale][:int( (len(sorted_attr_inds[failure_scale])-1) * r )]
+        to_keep = sorted_attr_inds[failure_scale][:int( len(sorted_attr_inds[failure_scale]) * r )]
         if failure_scale == 'firm':
             return G.induced_subgraph(to_keep)
         else:
@@ -407,15 +411,15 @@ def target_by_attribute(G,attr):
 
 def get_employee_attack(G):
     try:
-        G.vs['employeed_imputed']
+        G.vs['Employeed_imputed']
     except:
-        G.vs['employees_imputed'] = [math.isnan(x) for x in G.vs['employees']]
-    size_dist_private = np.array([x['employees'] for x in G.vs if x['private'] and not x['employees_imputed']])
-    imputed_size = np.random.choice(size_dist_private,len(G.vs(employees_imputed_eq = True)))
-    for v,s in zip(G.vs(employees_imputed_eq = True),imputed_size):
-        v['employees'] = s
-    return target_by_attribute(G,'employees')
-get_employee_attack.description = 'Employee'#-targeted'
+        G.vs['Employees_imputed'] = [math.isnan(x) for x in G.vs['Employees']]
+    size_dist_private = np.array([x['Employees'] for x in G.vs if x['private'] and not x['Employees_imputed']])
+    imputed_size = np.random.choice(size_dist_private,len(G.vs(Employees_imputed_eq = True)))
+    for v,s in zip(G.vs(Employees_imputed_eq = True),imputed_size):
+        v['Employees'] = s
+    return target_by_attribute(G,'Employees')
+get_employee_attack.description = 'Employees'#-targeted'
 
 def get_degree_attack(G):
     G.vs['degree'] = G.degree(range(G.vcount()))
@@ -529,7 +533,7 @@ def failure_plot(avgs,plot_title='Medical supply chain resilience under random f
 
     rho = avgs.columns[0]
     ax=[]
-    ax = [sns.lineplot(x=rho,y=col,label=col,data=avgs, errorbar=('pi',.95)) for col in avgs.columns]
+    ax = [sns.lineplot(x=rho,y=col,label=col,data=avgs, errorbar=('pi',95)) for col in avgs.columns]
     ax[0].set(xlabel=rho,
             ylabel='Percent of firms',
             title=plot_title)
@@ -548,14 +552,9 @@ def attack_compare_plot(
         metric=percent_terminal_suppliers_reachable.description,
         rho_scale=np.linspace(.3,1,71)):
 
-    if avgs is None:
-        avgs = pd.read_hdf('all_results.h5')
-
     rho = "Percent " + get_plural(failure_scale) + " remaining"
 
     data=avgs[
-        (avgs['Software included'] == software_included) &
-        (avgs['Tiers'] == tiers) &
         (avgs['Failure scale'] == failure_scale) &
         (avgs[rho] <= rho_scale[-1]) &
         (avgs[rho] >= rho_scale[0])]
@@ -563,7 +562,8 @@ def attack_compare_plot(
             y=metric,
             data=data,
             hue='Attack type',
-            errorbar=('pi',.95))
+            errorbar=('pi',95),
+            legend='full',estimator=np.median)
     plt.plot([rho_scale[0],rho_scale[-1]],
             [rho_scale[0],rho_scale[-1]],
             color=sns.color_palette()[data['Attack type'].unique().size],label=rho)
@@ -575,6 +575,11 @@ def attack_compare_plot(
         plt.savefig(fname)
 
     return ax
+
+def clean_prefix(prefix):
+    if prefix != '' and prefix[-1] != '/':
+        prefix += '/'
+    return prefix
 
 def failure_reachability(G,
         rho=np.linspace(0,1,10),
@@ -618,21 +623,21 @@ def failure_reachability(G,
         plot_title = targeted_factory.description.capitalize() + ' '\
                 + failure_scale + ' failures'\
                 + ((' excluding software firms' if G_has_no_software_flag else ' including software firms') if G_has_no_software_flag is not None else '')
-        fname = prefix + '/'\
-                + failure_scale\
+        prefix=clean_prefix(prefix)
+        fname = failure_scale\
                 + '_' + targeted_factory.description.replace(' ','_').lower()\
                 + '_range_' + str(rho[0]) + '_' + str(rho[-1])\
                 + '_repeats_' + str(repeats)\
                 + (('software_excluded' if G_has_no_software_flag else 'software_included') if G_has_no_software_flag is not None else '')
         if save_only:
-            os.makedirs(os.path.dirname('dat/'  + fname),exist_ok=True)
-            with open('dat/' + fname+'.pickle',mode='wb') as f:
+            os.makedirs(os.path.dirname(prefix + 'dat/'  + fname),exist_ok=True)
+            with open(prefix + 'dat/' + fname+'.pickle',mode='wb') as f:
                 pickle.dump(avgs,f)
-        os.makedirs(os.path.dirname('im/'  + fname),exist_ok=True)
+        os.makedirs(os.path.dirname(prefix + 'im/'  + fname),exist_ok=True)
         failure_plot(avgs[avgs.columns[:-2]],
             plot_title=plot_title,
             save_only=save_only,
-            filename='im/'+fname+'.svg')
+            filename=prefix + 'im/'+fname+'.svg')
 
     return avgs
 
@@ -653,9 +658,17 @@ def reduce_tiers(G,tiers):
     G.delete_vertices(G.vs(tier_ge = tiers+1))
     G.vs['id'] = list(range(G.vcount()))
 
-def compare_tiers(G, rho=np.linspace(.3,1,101), repeats=24, plot=True,save=True, attack = random_thinning_factory, failure_scale='firm',tier_range = range(1,max_tiers+1)):
+def compare_tiers(G, 
+        rho=np.linspace(.3,1,101), 
+        repeats=24, 
+        plot=True,
+        save=True, 
+        attack = random_thinning_factory, 
+        failure_scale='firm',
+        tier_range = range(1,max_tiers+1),
+        prefix=''):
     G = deepcopy(G)
-    res = []
+    res = pd.DataFrame()
     for tiers in reversed(tier_range):
         print(tiers)
         reduce_tiers(G,tiers)
@@ -668,14 +681,13 @@ def compare_tiers(G, rho=np.linspace(.3,1,101), repeats=24, plot=True,save=True,
                     targeted_factory = attack,
                     failure_scale = failure_scale)
         res_tier['Tier'] = tiers
-        res.append(res_tier)
-        with open('temp.pickle',mode='wb') as f: # save in case there is a crash
+        res=res.append(res_tier,ignore_index=True)
+        with open(prefix + 'temp.pickle',mode='wb') as f: # save in case there is a crash
             pickle.dump(res,f)
-    res = pd.concat(res)
 
     fname = 'compare_tiers/' + failure_scale + '/' + attack.description.replace(' ','_').lower()
-    os.makedirs('dat/'+os.path.dirname(fname),exist_ok=True)
-    res.to_hdf('dat/' + fname + '.h5', key='res')
+    os.makedirs(prefix + 'dat/'+os.path.dirname(fname),exist_ok=True)
+    res.to_hdf(prefix + 'dat/' + fname + '.h5', key='res')
 
     if plot:
         rho = "Percent " + get_plural(failure_scale) + " remaining"
@@ -684,11 +696,12 @@ def compare_tiers(G, rho=np.linspace(.3,1,101), repeats=24, plot=True,save=True,
                         y=percent_terminal_suppliers_reachable.description,
                         data=res,
                         hue='Tier',
-                        errorbar=('pi',.95))
+                        errorbar=('pi',95),
+                        legend='full')
         ax.set(title= attack.description.capitalize() + ' failures')
         if save:
-            os.makedirs('im/'+os.path.dirname(fname),exist_ok=True)
-            plt.savefig('im/'+fname+'.svg')
+            os.makedirs(prefix + 'im/'+os.path.dirname(fname),exist_ok=True)
+            plt.savefig(prefix + 'im/'+fname+'.svg')
     return res
 
 def no_china_us_reachability(G,include_taiwan_hong_kong=False):
@@ -784,7 +797,8 @@ def run_all_simulations(
         tiers_simulations=True,
         borders=True,
         tiers=range(1,max_tiers+1),
-        write_mode='w'):
+        write_mode='w',
+        prefix=''):
 
     if G is None:
         G = directed_igraph(giant=giant)
@@ -814,11 +828,14 @@ def run_all_simulations(
 
     med_suppliers = [i.index for i in get_med_suppliers(G)]
 
-    res = pd.DataFrame(columns=['Percent firms remaining'] + [cb.description for cb in callbacks] + ['Failure scale', 'Attack type', 'Tiers', 'Software included'])
-    res.Tiers = res.Tiers.astype(int)
-    res['Software included']=res['Software included'].astype(bool)
 
+    prefix=clean_prefix(prefix)
+    os.makedirs(prefix + 'dat/',exist_ok=True)
+    resfile = prefix + 'dat/all_results.h5'
+
+    to_return = []
     if scales_simulations:
+        res = pd.DataFrame()
         for rho in rho_scales:
             for failure_scale in failure_scales:
                 for attack in attacks:
@@ -830,10 +847,11 @@ def run_all_simulations(
                             plot=False,
                             repeats=repeats[attack], 
                             failure_scale=failure_scale,
-                            med_suppliers=med_suppliers)
-                    avgs[['Tiers','Software included']]=[max_tiers, False]
+                            med_suppliers=med_suppliers,
+                            prefix=prefix)
                     res=res.append(avgs,ignore_index=True)
-        res.to_hdf('all_results.h5',key='scales',mode=write_mode)
+        res.to_hdf(resfile,key='scales',mode=write_mode)
+        to_return.append(res)
 
         print('plotting')
         for failure_scale in failure_scales:
@@ -845,22 +863,34 @@ def run_all_simulations(
                     attack_compare_plot(res_temp,
                             failure_scale=failure_scale,
                             rho_scale=rho,
-                            fname ='im/attack_compare_' + str(rho[0]) + '_' + str(rho[-1]) + '/'\
+                            fname = prefix + 'im/attack_compare_' + str(rho[0]) + '_' + str(rho[-1]) + '/'\
                                     + metric.description.replace(' ','_').replace('.','').lower()\
                                     + '/' + failure_scale + '.svg',
                             save=True,
                             metric=metric.description)
 
     if tiers_simulations:
+        res = pd.DataFrame()
         for failure_scale in failure_scales:
             for attack in attacks:
                 print('compare tiers ' + attack.description.lower() + ' ' + failure_scale)
                 plt.clf()
-                res = res.append(compare_tiers(G,rho=full_rho,repeats=repeats[attack],plot='save',attack=attack,failure_scale=failure_scale))
-        res.to_hdf('all_results.h5',key='tiers',
+                res = res.append(compare_tiers(G,
+                    rho=full_rho,
+                    repeats=repeats[attack],
+                    plot='save',
+                    attack=attack,
+                    failure_scale=failure_scale,
+                    tier_range=tiers,
+                    prefix=prefix),
+                    ignore_index=True)
+        res.to_hdf(resfile,key='tiers',
                 mode=('a' if scales_simulations else write_mode))
+        to_return.append(res)
+
 
     if software_compare:
+        res = pd.DataFrame()
         graphs = (directed_igraph(no_software = True, giant=giant), 
                 directed_igraph(no_software = False, giant=giant))
         for G, inclusive  in zip(graphs, (False, True)):
@@ -874,11 +904,13 @@ def run_all_simulations(
                         repeats=repeats[attack], 
                         failure_scale='firm',
                         G_has_no_software_flag = (not inclusive),
-                        prefix='software_compare')
-                avgs[['Tiers','Software included']]=[max_tiers, inclusive]
+                        prefix=prefix + 'software_compare')
+                avgs['Software included'] = inclusive
                 res=res.append(avgs,ignore_index=True)
-        res.to_hdf('all_results.h5',key='software',
+        res.to_hdf(resfile,key='software',
                 mode=('a' if scales_simulations or tiers_simulations else write_mode))
+        res['Software included']=res['Software included'].astype(bool)
+        to_return.append(res)
 
     if borders:
         print('no_china_us_reachability')
@@ -892,4 +924,4 @@ def run_all_simulations(
     
     matplotlib.use(old_backend) # non-interactive ('Qt5Agg' for me)
 
-    return res
+    return tuple(to_return)
