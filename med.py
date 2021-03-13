@@ -99,15 +99,6 @@ def get_tier(tier=6, supplier_only=False):
 
     return firm_df,edge_df
 
-def get_shortcut_edges(G):
-    fdf = get_firm_df()
-    fdf = pd.concat([fdf, pd.DataFrame(dict(tier=G.vs['tier'],clean_tier=G.vs['clean_tier']),index=G.vs['name'])],axis=1)
-    df = get_df()
-    df['Source tier'] = df.Source.map(lambda x : fdf.loc[x]['tier'])
-    df['Target tier'] = df.Target.map(lambda x : fdf.loc[x]['tier'])
-
-    return df[df['Source tier'] > df['Target tier'] + 1]
-
 def get_firm_df(df=None):
     if df is None:
         df = get_df()
@@ -142,12 +133,25 @@ def get_firm_df(df=None):
     firm_df['country-industry'] = firm_df['country'] + ' '  + firm_df['industry']
     firm_df.loc[firm_df['Employees'] == '(Invalid Identifier)','Employees'] = math.nan
 
+    firm_df['Tier'] = df.groupby('Source').Tier.min()
+    firm_df.loc[firm_df.Tier.isna(),'Tier'] = 0
+    firm_df.Tier = firm_df.Tier.astype(int)
+
     return firm_df
 
 def get_edge_df(df=None):
     if df is None:
         df = get_df()
     return df[['Source','Target','Tier']]
+
+def get_shortcut_edges(G):
+    fdf = get_firm_df()
+    fdf = pd.concat([fdf, pd.DataFrame(dict(tier=G.vs['tier'],clean_tier=G.vs['clean_tier']),index=G.vs['name'])],axis=1)
+    df = get_df()
+    df['Source tier'] = df.Source.map(lambda x : fdf.loc[x]['tier'])
+    df['Target tier'] = df.Target.map(lambda x : fdf.loc[x]['tier'])
+
+    return df[df['Source tier'] > df['Target tier'] + 1]
 
 def edges():
     df=get_edge_df()
@@ -178,7 +182,8 @@ def directed_igraph(*,
         include_private=True,
         cut_low_terminal_suppliers=True,
         reduced_density=False,
-        clean_tiers=True):
+        clean_tiers=True,
+        overwrite_old_tiers=True):
 
     df = get_df()
     firm_df = get_firm_df(df)
@@ -188,6 +193,7 @@ def directed_igraph(*,
     G.vs['firm name']=firm_df['name']
     for attr in ['industry', 'country', 'country-industry','market_cap','Employees','private']:
         G.vs[attr]=firm_df[attr]
+    G.vs['tier']=firm_df['Tier']
 
     G.add_edges(edge_df[['Source','Target']].itertuples(index=False))
 
@@ -211,7 +217,8 @@ def directed_igraph(*,
         to_keep = med_suppliers
         curr_tier = to_keep
         G.vs['clean_tier'] = [0]*G.vcount()
-        for tier in range(1,max_tiers+1):
+        tier=0
+        while len(curr_tier)>0:
 
             # get next tier (as a list with duplicates)
             next_tier = []
@@ -225,10 +232,12 @@ def directed_igraph(*,
 
             # add next tier to the list of nodes to keep
             to_keep = set(to_keep).union(curr_tier)
+            tier += 1
 
-        G.vs['tier'] = G.vs['clean_tier']
-        for e in G.es:
-            e['tier'] = e.target_vertex['tier'] + 1
+        if overwrite_old_tiers:
+            G.vs['tier'] = G.vs['clean_tier']
+            for e in G.es:
+                e['tier'] = e.target_vertex['tier'] + 1
 
         G = G.induced_subgraph(to_keep)
     else:
@@ -248,22 +257,21 @@ def directed_igraph(*,
 
     if reduced_density:
         print('Reducing density')
-        G=random_thinning_factory(G)(G,reduced_density) # .2 works. .1 might have no med suppliers
+        G=random_thinning_factory(G)(reduced_density) # .2 works. .1 might have no med suppliers
 
     G.vs['id'] = list(range(G.vcount())) # helps when passing to subgraphs
     med_suppliers = get_med_suppliers(G)
     G.vs['is_medical'] = [i in med_suppliers for i in G.vs]
-
     G.reversed = False
-    def reverse():
-        tier = dict(tier=G.es['tier'])
-        edges = [tuple(reversed(e.tuple)) for e in G.es]
-        G.delete_edges(None)
-        G.add_edges(edges,tier)
-        G.reversed = not G.reversed
-    G.reverse = reverse
 
     return G
+
+def reverse(G):
+    tier = dict(tier=G.es['tier'])
+    edges = [tuple(reversed(e.tuple)) for e in G.es]
+    G.delete_edges(None)
+    G.add_edges(edges,tier)
+    G.reversed = not G.reversed
 
 def get_terminal_suppliers(i,G):
     if type(i) is ig.Vertex:
@@ -380,7 +388,7 @@ def random_thinning_factory(G):
         perm[failure_scale] = uniques[failure_scale]
         random.shuffle(perm[failure_scale])
 
-    def attack(G,rho,failure_scale='firm'):
+    def attack(rho,failure_scale='firm'):
         if failure_scale == 'firm':
             return G.induced_subgraph((firm_rands <= rho).nonzero()[0].tolist())
         else:
@@ -391,27 +399,32 @@ def random_thinning_factory(G):
     return attack
 random_thinning_factory.description = 'Random'
 
-def target_by_attribute(G,attr):
+def get_sorted_attr_inds(G,attr):
 
     sorted_attr_inds=dict()
     sorted_attr_inds['firm'] = sorted(range(G.vcount()), key=G.vs[attr].__getitem__)
     for failure_scale in ['country', 'industry', 'country-industry']:
         sorted_attr_inds[failure_scale]  = sorted(set(G.vs[failure_scale ]), key=lambda x : sum(G.vs(lambda v : v[failure_scale] == x)[attr]))
+    return sorted_attr_inds
 
-    def targeted(G,r,failure_scale='firm'):
+def target_by_attribute(G,attr):
+
+    sorted_attr_inds = get_sorted_attr_inds(G,attr)
+
+    def targeted(r,failure_scale='firm'):
         to_keep = sorted_attr_inds[failure_scale][:int( len(sorted_attr_inds[failure_scale]) * r )]
         if failure_scale == 'firm':
             return G.induced_subgraph(to_keep)
         else:
             return G.induced_subgraph(G.vs(lambda x : str(x[failure_scale]) in to_keep))
 
-    targeted.description = attr#+'-targeted'
+    targeted.description = attr
             
     return targeted
 
 def get_employee_attack(G):
     try:
-        G.vs['Employeed_imputed']
+        G.vs['Employees_imputed']
     except:
         G.vs['Employees_imputed'] = [math.isnan(x) for x in G.vs['Employees']]
     size_dist_private = np.array([x['Employees'] for x in G.vs if x['private'] and not x['Employees_imputed']])
@@ -419,12 +432,12 @@ def get_employee_attack(G):
     for v,s in zip(G.vs(Employees_imputed_eq = True),imputed_size):
         v['Employees'] = s
     return target_by_attribute(G,'Employees')
-get_employee_attack.description = 'Employees'#-targeted'
+get_employee_attack.description = 'Employees'
 
 def get_degree_attack(G):
     G.vs['degree'] = G.degree(range(G.vcount()))
     return target_by_attribute(G,'degree')
-get_degree_attack.description = 'Degree'#-targeted'
+get_degree_attack.description = 'Degree'
 
 def get_pagerank_attack(G,transpose=True):
 
@@ -433,9 +446,9 @@ def get_pagerank_attack(G,transpose=True):
         G[attrname]
     except:
         if transpose:
-            G.reverse()
+            reverse(G)
             pr = G.pagerank()
-            G.reverse()
+            reverse(G)
         else:
             pr=G.pagerank()
         G.vs[attrname]=pr
@@ -448,7 +461,7 @@ def get_pagerank_attack_no_transpose(G):
 get_pagerank_attack_no_transpose.description='Pagerank'
 
 def get_null_attack(G):
-    def null_attack(G,r,failure_scale='firm'):
+    def null_attack(r,failure_scale='firm'):
         return G
     return null_attack
 get_null_attack.description='Null'#-targeted'
@@ -487,7 +500,7 @@ def failure_reachability_single(r,G,med_suppliers=False,ts=False,failure_scale='
     if not targeted:
         targeted=random_thinning_factory(G)
 
-    G_thin = targeted(G,r,failure_scale=failure_scale)
+    G_thin = targeted(r,failure_scale=failure_scale)
     med_suppliers_thin = {i_thin['id']:i_thin.index for i_thin in G_thin.vs if i_thin['id'] in med_suppliers}
 
     res = dict()
@@ -582,7 +595,7 @@ def clean_prefix(prefix):
     return prefix
 
 def failure_reachability(G,
-        rho=np.linspace(0,1,10),
+        rho=np.linspace(.3,1,71),
         plot=True,
         save_only=False,
         repeats=1,
@@ -653,20 +666,40 @@ def get_plural(x):
     else:
         raise NotImplementedError
 
-def reduce_tiers(G,tiers):
-    G.delete_edges(G.es(tier_ge = tiers+1))
+def reduce_tiers(G,tiers): 
+    G.delete_edges(G.es(tier_ge = tiers+1)) # This can delete some edges even if tier=max_tier, since there can be edges of tier max_tier+1
     G.delete_vertices(G.vs(tier_ge = tiers+1))
     G.vs['id'] = list(range(G.vcount()))
+    for attr in ['Pagerank', 'Pagerank of transpose', 'Employees_imputed', 'Industry_imputed']:
+        try:
+            del G.vs[attr]
+        except:
+            pass
+
+def temp(G, 
+        to_reverse,
+        to_copy):
+    if to_copy:
+        G = deepcopy(G)
+
+    if not to_reverse:
+        return np.array(G.pagerank())
+    else:
+        reverse(G)
+        pr = np.array(G.pagerank())
+        reverse(G)
+        return pr
 
 def compare_tiers(G, 
-        rho=np.linspace(.3,1,101), 
+        rho=np.linspace(.3,1,71), 
         repeats=24, 
         plot=True,
         save=True, 
         attack = random_thinning_factory, 
         failure_scale='firm',
         tier_range = range(1,max_tiers+1),
-        prefix=''):
+        prefix='',
+        parallel='auto'):
     G = deepcopy(G)
     res = pd.DataFrame()
     for tiers in reversed(tier_range):
@@ -679,8 +712,9 @@ def compare_tiers(G,
                     callbacks=(percent_terminal_suppliers_reachable,),
                     repeats=repeats,
                     targeted_factory = attack,
-                    failure_scale = failure_scale)
-        res_tier['Tier'] = tiers
+                    failure_scale = failure_scale,
+                    parallel=parallel)
+        res_tier['Tier count'] = tiers
         res=res.append(res_tier,ignore_index=True)
         with open(prefix + 'temp.pickle',mode='wb') as f: # save in case there is a crash
             pickle.dump(res,f)
@@ -695,7 +729,7 @@ def compare_tiers(G,
                         x=rho,
                         y=percent_terminal_suppliers_reachable.description,
                         data=res,
-                        hue='Tier',
+                        hue='Tier count',
                         errorbar=('pi',95),
                         legend='full')
         ax.set(title= attack.description.capitalize() + ' failures')
@@ -817,11 +851,21 @@ def run_all_simulations(
     if repeats=='min':
         max_repeats=6
 
+#    if (repeats is None) or (repeats == 'min'):
+#        repeats = dict([(random_thinning_factory,max_repeats),
+#            (attacks[1],1),
+#            (attacks[2],1),
+#            (get_employee_attack,(6 if max_repeats==6 else 24))])
     if (repeats is None) or (repeats == 'min'):
-        repeats = dict([(random_thinning_factory,max_repeats),
-            (attacks[1],1),
-            (attacks[2],1),
-            (get_employee_attack,(6 if max_repeats==6 else 24))])
+        repeats = dict()
+        for attack in attacks:
+            for failure_scale in failure_scales:
+                repeats[attack,failure_scale] = 1
+                if failure_scale == 'industry':
+                    repeats[attack,failure_scale] = min(max_repeats,24)
+                if (attack == random_thinning_factory) or (attack == get_employee_attack):
+                    repeats[attack,failure_scale] = max_repeats
+
 
     if rho_scales is None:
         rho_scales = [full_rho, np.linspace(.9,1,101)]#, np.linspace(.99,1,101),np.linspace(.999,1,101),np.linspace(.9999,1,101)]
@@ -845,7 +889,7 @@ def run_all_simulations(
                             rho=rho, 
                             targeted_factory=attack, 
                             plot=False,
-                            repeats=repeats[attack], 
+                            repeats=repeats[(attack,failure_scale)], 
                             failure_scale=failure_scale,
                             med_suppliers=med_suppliers,
                             prefix=prefix)
@@ -877,7 +921,7 @@ def run_all_simulations(
                 plt.clf()
                 res = res.append(compare_tiers(G,
                     rho=full_rho,
-                    repeats=repeats[attack],
+                    repeats=repeats[(attack,failure_scale)],
                     plot='save',
                     attack=attack,
                     failure_scale=failure_scale,
@@ -901,7 +945,7 @@ def run_all_simulations(
                         rho=full_rho, 
                         targeted_factory=attack, 
                         save_only=True,
-                        repeats=repeats[attack], 
+                        repeats=repeats[(attack,failure_scale)], 
                         failure_scale='firm',
                         G_has_no_software_flag = (not inclusive),
                         prefix=prefix + 'software_compare')
