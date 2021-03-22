@@ -738,7 +738,7 @@ def compare_tiers(G,
             plt.savefig(prefix + 'im/'+fname+'.svg')
     return res
 
-def no_china_us_reachability(G,include_taiwan_hong_kong=False):
+def no_china_us_reachability(G,include_taiwan_hong_kong=False,prefix='.'):
     print("Removing all US-China supply chain links")
 
     # Get medical suppliers
@@ -778,11 +778,11 @@ def no_china_us_reachability(G,include_taiwan_hong_kong=False):
 
     by_country = reachable.groupby('country').mean().reindex(['United States', 'China', 'Taiwan', 'Hong Kong'])
 
-    by_country.to_excel('dat/no_us_china'+ ('incl_taiwan_hk' if include_taiwan_hong_kong else '') + '.xlsx')
+    by_country.to_excel(prefix + '/dat/no_us_china'+ ('_incl_taiwan_hk' if include_taiwan_hong_kong else '') + '.xlsx')
 
     return by_country
 
-def close_all_borders(G):
+def close_all_borders(G,prefix='.'):
     G_thin = deepcopy(G)
     G_thin.delete_edges(G_thin.es.select(lambda e : e.source_vertex['country'] != e.target_vertex['country']))
 
@@ -798,11 +798,11 @@ def close_all_borders(G):
 
     by_country = reachable.groupby('country').mean()
 
-    by_country.to_excel('dat/close_all_borders.xlsx')
+    by_country.to_excel(prefix+'/dat/close_all_borders.xlsx')
 
     return reachable
 
-def industry_deletion_effects(G):
+def industry_deletion_effects(G,prefix='.'):
 
     med_suppliers = get_med_suppliers(G)
     t = [get_terminal_suppliers(i.index,G) for i in med_suppliers]
@@ -816,7 +816,7 @@ def industry_deletion_effects(G):
             res[ind] = [np.mean([cb(None,G,G_thin,tt,uu) for tt,uu in zip(t,u)]) for cb in callbacks]
 
     res = pd.DataFrame(res,index=[cb.description for cb in callbacks]).transpose()
-    res.to_excel('dat/industry_deletion_effects.xlsx')
+    res.to_excel(prefix + '/dat/industry_deletion_effects.xlsx')
 
     return res
 
@@ -958,13 +958,13 @@ def run_all_simulations(
 
     if borders:
         print('no_china_us_reachability')
-        no_china_us_reachability(G)
+        no_china_us_reachability(G,include_taiwan_hong_kong=True,prefix=prefix)
         print('no_china_us_reachability')
         no_china_us_reachability(G,include_taiwan_hong_kong=False)
         print('close_all_borders')
-        close_all_borders(G)
+        close_all_borders(G,prefix=prefix)
         print('industry_deletion_effects')
-        industry_deletion_effects(G)
+        industry_deletion_effects(G,prefix=prefix)
     
     matplotlib.use(old_backend) # non-interactive ('Qt5Agg' for me)
 
