@@ -228,7 +228,7 @@ def directed_igraph(*,
             #  the next current tier will be the new nodes we just found
             curr_tier = set(next_tier).difference(to_keep)
             for v in curr_tier:
-                v['clean_tier'] = tier
+                v['clean_tier'] = tier + 1 # TODO: shouldn't this be tier + 1?
 
             # add next tier to the list of nodes to keep
             to_keep = set(to_keep).union(curr_tier)
