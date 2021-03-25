@@ -19,7 +19,7 @@ max_tiers=10
 
 def get_df(cached=True,save=True, extra_tiers=False):
     if cached:
-        df = pd.read_hdf('kayvan_data.h5') 
+        df = pd.read_hdf('dat/kayvan_data.h5') 
     else:
         file_name='dat/firms_tier_1_thru_10 v4 New Firms Data 2021-02-15.xlsx'
 
@@ -50,7 +50,7 @@ def get_df(cached=True,save=True, extra_tiers=False):
             df[col]=df[col].astype(float)
 
         if save:
-            df.to_hdf('kayvan_data.h5',key='df')
+            df.to_hdf('dat/kayvan_data.h5',key='df')
 
     return df
 
