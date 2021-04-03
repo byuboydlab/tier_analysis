@@ -217,8 +217,9 @@ def directed_igraph(*,
         to_keep = med_suppliers
         curr_tier = to_keep
         G.vs['clean_tier'] = [0]*G.vcount()
-        tier=0
-        while len(curr_tier)>0:
+        #tier=0
+        #while len(curr_tier)>0:
+        for tier in range(0,max_tiers):
 
             # get next tier (as a list with duplicates)
             next_tier = []
@@ -228,11 +229,11 @@ def directed_igraph(*,
             #  the next current tier will be the new nodes we just found
             curr_tier = set(next_tier).difference(to_keep)
             for v in curr_tier:
-                v['clean_tier'] = tier + 1 # TODO: shouldn't this be tier + 1?
+                v['clean_tier'] = tier + 1
 
             # add next tier to the list of nodes to keep
             to_keep = set(to_keep).union(curr_tier)
-            tier += 1
+            #tier += 1
 
         if overwrite_old_tiers:
             G.vs['tier'] = G.vs['clean_tier']
