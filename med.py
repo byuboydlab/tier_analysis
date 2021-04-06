@@ -1006,3 +1006,25 @@ def tree_graph_test():
         print("failed with error " + str(abs_err))
 
     return res
+
+#x=pd.DataFrame(index=failure_scales,columns=[attack.description for attack in attacks])
+#for attack in attacks:
+#    for scale in failure_scales:
+#        x[attack.description][scale] = med.required_tiers(res,attack,scale)
+
+def required_tiers(res,attack,scale):
+    # Assume res is already filtered to a specific attack and scale
+
+    res=res[(res['Failure scale']==scale) & (res['Attack type'] == attack.description)]
+    rho = "Percent " + get_plural(scale) + " remaining"
+
+    means=[]
+    for tier_count in range(1,max_tiers+1):
+        means.append(res[res['Tier count'] == tier_count].groupby(rho)['Avg. percent end suppliers reachable'].mean())
+
+    maxes = np.zeros(max_tiers)
+    for tier_count in range(1,max_tiers+1):
+        maxes[tier_count-1] = np.max(np.abs(means[tier_count-1] - means[-1]))
+
+    tol = .05
+    return np.nonzero(maxes<tol)[0][0]+1
