@@ -1028,3 +1028,52 @@ def required_tiers(res,attack,scale):
 
     tol = .05
     return np.nonzero(maxes<tol)[0][0]+1
+
+def breakdown_thresholds(res,tol=.2):
+
+    t=dict()
+    for scale in res['Failure scale'].unique():
+        x=res[(res['Failure scale']==scale) & (res['Attack type'] == 'Random')].groupby('Percent ' + get_plural(scale) + ' remaining').mean()['Avg. percent end suppliers reachable']
+        t[scale]=x.index[np.max(np.nonzero((x<tol).values))] # get largest post-threshold density
+    return t
+
+def er_threshold(G,rho=np.linspace(0,1,101),repeats=10):
+    for rr in range(repeats):
+        print(rr)
+        a = random_thinning_factory(G)
+        impute_industry(G)
+        failure_scales = ['firm','country','industry','country-industry']
+        thr = pd.DataFrame()
+        for failure_scale in failure_scales:
+            print(failure_scale)
+            d = pd.Series(index=rho,name='mean_degree')
+            for r in rho:
+                Gt = a(r,failure_scale=failure_scale)
+                d[r] = np.mean(Gt.degree())
+            thr=thr.append({'Scale':failure_scale, 'val':d.index[np.nonzero(d.values>1)[0][0]]},ignore_index=True)
+    thr=thr.groupby('Scale')['val'].median()
+    return thr
+
+import powerlaw
+def powerlaw_threshold_random(G):
+    gamma = powerlaw.Fit(np.bincount(G.degree())).alpha # exponent
+    kmax=max(G.degree())
+    kmin=min(G.degree())
+
+    kappa = (2-gamma)/(3-gamma) * kmax # https://en.wikipedia.org/wiki/Robustness_of_complex_networks#Critical_threshold_for_random_failures
+    fc = 1 - 1/(kappa-1)
+
+    return 1-fc
+
+def powerlaw_threshold_targeted(G):
+    kmin=min(G.degree())
+    gamma = powerlaw.Fit(np.bincount(G.degree())).alpha # exponent
+
+    def f(x):
+        return x**((2-gamma)/(1-gamma)) - 2 - (2-gamma)/(3-gamma) * kmin * (x**((3-gamma)/(1-gamma)) - 1)
+
+    from scipy.optimize import root_scalar
+    return root_scalar(f,bracket=[0,1]) # This doesn't work, since alpha is about 1.4<2. So the network is exceedingly fragile against degree-based attacks (at least in terms of giant connected components)
+
+# ER attack is the same as ER failure
+
