@@ -1031,10 +1031,15 @@ def required_tiers(res,attack,scale):
 
 def breakdown_thresholds(res,tol=.2):
 
-    t=dict()
-    for scale in res['Failure scale'].unique():
-        x=res[(res['Failure scale']==scale) & (res['Attack type'] == 'Random')].groupby('Percent ' + get_plural(scale) + ' remaining').mean()['Avg. percent end suppliers reachable']
-        t[scale]=x.index[np.max(np.nonzero((x<tol).values))] # get largest post-threshold density
+    t = pd.DataFrame()
+    for attack in [random_thinning_factory, get_pagerank_attack, get_pagerank_attack_no_transpose, get_employee_attack]:
+        for scale in res['Failure scale'].unique():
+            x=res[(res['Failure scale']==scale) & (res['Attack type'] == attack.description)].groupby('Percent ' + get_plural(scale) + ' remaining').mean()['Avg. percent end suppliers reachable']
+            try:
+                val = x.index[np.max(np.nonzero((x<tol).values))]
+            except:
+                val = .29
+            t=t.append({'Scale': scale, 'Attack':attack.description, 'val':val},ignore_index=True) # get largest post-threshold density
     return t
 
 def er_threshold(G,rho=np.linspace(0,1,101),repeats=10):
