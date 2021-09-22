@@ -16,114 +16,70 @@ import matplotlib
 #logging.basicConfig(filename='.med.log',level=logging.DEBUG,format='%(levelname)s:%(message)s',filemode='w')
 
 max_tiers=10
+nato= ['Albania', 'Belgium', 'Bulgaria', 'Canada', 'Croatia', 'Czech Republic', 'Denmark', 'Estonia', 'France', 'Germany', 'Greece', 'Hungary', 'Iceland', 'Italy', 'Latvia', 'Lithuania', 'Luxembourg', 'Montenegro', 'Netherlands', 'Norway', 'Poland', 'Portugal', 'Romania', 'Slovakia', 'Slovenia', 'Spain', 'Turkey', 'United Kingdom', 'United States']
+north_america = ['Bahamas', 'Barbados', 'Belize', 'Bermuda', 'British Virgin Islands', 'Canada', 'Cayman Islands', 'Costa Rica', 'Curaçao', 'Dominican Republic', 'El Salvador', 'Gibraltar', 'Guadeloupe', 'Guatemala', 'Honduras', 'Jamaica', 'Panama', 'Saint Lucia', 'Trinidad & Tobago', 'United States']
 
 def get_df(cached=True,save=True, extra_tiers=False):
     if cached:
-        df = pd.read_hdf('dat/kayvan_data.h5') 
+        df = pd.read_hdf('dat/vc_relationships.h5') 
     else:
-        file_name='dat/firms_tier_1_thru_10 v4 New Firms Data 2021-02-15.xlsx'
+        file_name='dat/med.xlsx'
+        #file_name='dat/T10-9-8-7-6-5-4-3-2-1 transformed no formula.xlsx'
+        #file_name='Autoindustry Tier 1-2-3-4-5 only suppliers.xlsx'
 
-        df = pd.read_excel(file_name,sheet_name="Sheet1")
-        df = df.drop('Type',axis=1)
+        df = pd.read_excel(file_name,sheet_name="Sheet1",engine='openpyxl')
         df = df.drop_duplicates(ignore_index=True)
-        df = df.rename({'Source Name':'Source NAME','Target Name':'Target NAME',
-            'Source MktCap': 'SourceSizeMktCap','Target MktCap': 'TargetSizeMktCap',
-            'Source Employees Global':'SourceSizeEmployeesGlobal', 'Target Employees Global':'TargetSizeEmployeesGlobal',
-            'SourceTotalRevenue':'SourceSizeRevenue','TargetTotalRevenue':'TargetSizeRevenue',
-            'Source Type':'SourceType', 'Target Type':'TargetType'},axis=1)
 
-        if extra_tiers:
-            for tier in range(6,max_tiers + 1):
-                print(tier)
-                _,e_new = get_tier(tier,supplier_only=True)
-                e_new['Tier']=tier
-                f_old = df[df.Tier == tier-1].Source.unique()
-                e_new = e_new[e_new.Target.map(lambda x: x in f_old)]
-                df=df.append(e_new,ignore_index=True)
-        df.drop(list(df.filter(regex='Unnamed')),axis=1,inplace=True)
+        try:
+            df=df[df['Relationship Type']=='Supplier']
+            df.reset_index()
+        except:
+            pass
 
         # resolve NaNs for better typing
-        for col in ['Source Country', 'Target Country', 'Source NAME', 'Target NAME', 'Source Industry', 'Target Industry', 'SourceType', 'TargetType']:
-            df[col] = df[col].astype(str)
-        for col in ['SourceSizeMktCap', 'TargetSizeMktCap', 'SourceSizeRevenue', 'TargetSizeRevenue', 'SourceSizeEmployeesGlobal', 'TargetSizeEmployeesGlobal']:
-            df.loc[df[col] == '(Invalid Identifier)',col] = math.nan
-            df[col]=df[col].astype(float)
+        for col in ['Source Country', 'Target Country', 'Source Name', 'Target Name', 'Source Industry', 'Target Industry', 'Source Private', 'Target Private']:
+            try: # in case these columns are not there
+                df[col] = df[col].astype(str)
+            except:
+                pass
+        for col in ['Source Market Cap', 'Target Market Cap', 'Source Revenue', 'Target Revenue', 'Source Employees Global', 'Target Employees Global']:
+            try: # in case these columns are not there
+                df.loc[df[col] == '(Invalid Identifier)',col] = math.nan
+                df[col]=df[col].astype(float)
+            except:
+                pass
 
         if save:
-            df.to_hdf('dat/kayvan_data.h5',key='df')
+            df.to_hdf('dat/vc_relationships.h5',key='df')
 
     return df
-
-def get_tier(tier=6, supplier_only=False):
-
-    # Standardize columns
-    if tier == 6:
-        fname = 'Backward Tier 6 v2 cleaned up.xlsx'
-        to_drop = ['Source(Tier 5)','Target (Tier 4)','Type','Q.Control','Suppliers (Tier 6)','Supplier Relationship (Tier 6)']
-        target_name = 'Source(Tier 5)-Becomes Target of "Tier 6 Supplier"'
-    elif tier == 7:
-        fname = 'tier_6_edges_all_supplier_types v3 Tier-7.xlsx'
-        to_drop = ['Q.Control', 'Supplier Relationship (Tier 6)']
-        target_name = 'Source(6th Tier)-becomes target for 7th tier'
-    elif tier == 8:
-        fname = 'tier_7_edges_8th tier added v2 duplicate source removed.xlsx'
-        to_drop = ['Qcontrol', 'Supplier Relationship (Tier 6)']
-        target_name = 'Source'
-    elif tier == 9:
-        fname = 'tier_8_firms v2 9th tier added.xlsx'
-        to_drop = ['Qcontrol', 'Supplier Relationship (Tier 6)']
-        target_name = 'Source'
-    elif tier == 10:
-        fname = 'tier_9_edges v2 Tier 10 added.xlsx'
-        to_drop = ['Supplier Relationship (Tier 6)']
-        target_name = 'Source'
-
-    # Load
-    df = pd.read_excel('dat/' + fname, sheet_name='Sheet1', engine='openpyxl') # Need to pip install openpyxl. The default engine now doesn't support .xlsx, only .xls
-    df.drop(to_drop, axis=1,inplace=True)
-    df.rename(columns={target_name:'Target'},inplace=True)
-
-    # Get edges
-    edge_df = pd.DataFrame(columns=['Source', 'Target'])
-    for i in range(1,351):
-        dfi=df[['Target',i,str(i)+'.1']].dropna().rename(columns = {i : 'Source', str(i) + '.1' : 'Type'})
-        if supplier_only:
-            dfi=dfi[dfi.Type=='Supplier'].drop('Type',axis=1)
-        edge_df = edge_df.append(dfi,ignore_index=True)
-    edge_df.drop_duplicates(inplace=True,ignore_index=True)
-
-    # Get firms
-    firm_df = pd.DataFrame(dict(ID=edge_df['Source']))
-    firm_df = firm_df.append(pd.DataFrame(dict(ID=edge_df['Target'])))
-    firm_df.drop_duplicates(inplace=True,ignore_index=True)
-
-    return firm_df,edge_df
 
 def get_firm_df(df=None):
     if df is None:
         df = get_df()
 
-    df = df.rename({'Source Name':'Source NAME','Target Name':'Target NAME',
-        'Source MktCap': 'SourceSizeMktCap','Target MktCap': 'TargetSizeMktCap',
-        'Source Employees Global':'SourceSizeEmployeesGlobal', 'Target Employees Global':'TargetSizeEmployeesGlobal',
-        'Source Type':'SourceType', 'Target Type':'TargetType'},axis=1)
+    for col in ['Source', 'Source Name', 'Source Industry', 'Source Country', 'Source Market Cap', 'Source Employees Global', 'Source Private', 'Target', 'Target Name', 'Target Industry', 'Target Country', 'Target Market Cap', 'Target Employees Global', 'Target Private']:
+        try:
+            df[col]
+        except:
+            df[col] = 'nan'
 
     firm_df = pd.DataFrame(dict(
         ID=df['Source'],
-        name=df['Source NAME'],
+        name=df['Source Name'],
         industry=df['Source Industry'],
         country=df['Source Country'],
-        market_cap=df['SourceSizeMktCap'],
-        Employees=df['SourceSizeEmployeesGlobal'],
-        private=df['SourceType']))
+        market_cap=df['Source Market Cap'],
+        Employees=df['Source Employees Global'],
+        private=df['Source Private']))
     firm_df = firm_df.append(pd.DataFrame(dict(
         ID=df['Target'],
-        name=df['Target NAME'],
+        name=df['Target Name'],
         industry=df['Target Industry'],
         country=df['Target Country'],
-        market_cap=df['TargetSizeMktCap'],
-        Employees=df['TargetSizeEmployeesGlobal'],
-        private=df['TargetType'])))
+        market_cap=df['Target Market Cap'],
+        Employees=df['Target Employees Global'],
+        private=df['Target Private'])))
 
     for col in ['country', 'industry']:
         firm_df[col] = firm_df[col].astype(str) # make NaNs into string nan
@@ -191,13 +147,13 @@ def directed_igraph(*,
     G = ig.Graph(directed=True)
     G.add_vertices(firm_df.index)
     G.vs['firm name']=firm_df['name']
-    for attr in ['industry', 'country', 'country-industry','market_cap','Employees','private']:
+    for attr in ['industry', 'country', 'country-industry','Employees']:
         G.vs[attr]=firm_df[attr]
     G.vs['tier']=firm_df['Tier']
 
     G.add_edges(edge_df[['Source','Target']].itertuples(index=False))
 
-    G.es['tier'] = edge_df.Tier
+    G.es['tier'] = edge_df.Tier.values
     G.simplify(loops=False, combine_edges='min') # use min to keep smaller tier value.
 
     if no_software:
@@ -262,8 +218,14 @@ def directed_igraph(*,
 
     G.vs['id'] = list(range(G.vcount())) # helps when passing to subgraphs
     med_suppliers = get_med_suppliers(G)
-    G.vs['is_medical'] = [i in med_suppliers for i in G.vs]
+    G.vs['is_demand_node'] = [i in med_suppliers for i in G.vs]
     G.reversed = False
+
+    try:
+        for firm in ["U.s. Military.", "National Aeronautics and Space Administration", "United States Department Of Defense", "US Navy"]: # US Navy is not there if you clean tiers
+            G.vs(lambda x : x['firm name'] == firm)[0]['industry'] = 'U.S. Military'
+    except:
+        pass
 
     return G
 
@@ -408,31 +370,31 @@ def get_sorted_attr_inds(G,attr):
         sorted_attr_inds[failure_scale]  = sorted(set(G.vs[failure_scale ]), key=lambda x : sum(G.vs(lambda v : v[failure_scale] == x)[attr]))
     return sorted_attr_inds
 
-def target_by_attribute(G,attr):
+def target_by_attribute(G,attr, protected_countries = []):
 
-    sorted_attr_inds = get_sorted_attr_inds(G,attr)
+    sorted_attr_inds = get_sorted_attr_inds(G, attr)
 
     def targeted(r,failure_scale='firm'):
         to_keep = sorted_attr_inds[failure_scale][:int( len(sorted_attr_inds[failure_scale]) * r )]
         if failure_scale == 'firm':
-            return G.induced_subgraph(to_keep)
+            return G.induced_subgraph(to_keep + list(G.vs(lambda x : x['country'] in protected_countries)))
         else:
-            return G.induced_subgraph(G.vs(lambda x : str(x[failure_scale]) in to_keep))
+            return G.induced_subgraph(G.vs(lambda x : (str(x[failure_scale]) in to_keep) or (x['country'] in protected_countries)))
 
     targeted.description = attr
             
     return targeted
 
-def get_employee_attack(G):
+def get_employee_attack(G, protected_countries = []):
     try:
         G.vs['Employees_imputed']
     except:
         G.vs['Employees_imputed'] = [math.isnan(x) for x in G.vs['Employees']]
-    size_dist_private = np.array([x['Employees'] for x in G.vs if x['private'] and not x['Employees_imputed']])
+    size_dist_private = np.array([x['Employees'] for x in G.vs if not x['Employees_imputed']])
     imputed_size = np.random.choice(size_dist_private,len(G.vs(Employees_imputed_eq = True)))
     for v,s in zip(G.vs(Employees_imputed_eq = True),imputed_size):
         v['Employees'] = s
-    return target_by_attribute(G,'Employees')
+    return target_by_attribute(G,'Employees', protected_countries = protected_countries)
 get_employee_attack.description = 'Employees'
 
 def get_degree_attack(G):
@@ -440,7 +402,7 @@ def get_degree_attack(G):
     return target_by_attribute(G,'degree')
 get_degree_attack.description = 'Degree'
 
-def get_pagerank_attack(G,transpose=True):
+def get_pagerank_attack(G,transpose=True, protected_countries = []):
 
     attrname = 'Pagerank of transpose' if transpose else 'Pagerank'
     try:
@@ -454,11 +416,11 @@ def get_pagerank_attack(G,transpose=True):
             pr=G.pagerank()
         G.vs[attrname]=pr
 
-    return target_by_attribute(G,attrname)
+    return target_by_attribute(G,attrname, protected_countries = protected_countries)
 get_pagerank_attack.description='Pagerank of transpose'
 
-def get_pagerank_attack_no_transpose(G):
-    return get_pagerank_attack(G,transpose=False)
+def get_pagerank_attack_no_transpose(G, protected_countries = []):
+    return get_pagerank_attack(G,transpose=False, protected_countries = protected_countries)
 get_pagerank_attack_no_transpose.description='Pagerank'
 
 def get_null_attack(G):
@@ -691,6 +653,20 @@ def temp(G,
         reverse(G)
         return pr
 
+def compare_tiers_plot(res,rho=np.linspace(.3,1,71),failure_scale='firm',attack=random_thinning_factory,save=True,prefix=''):
+    rho = "Percent " + get_plural(failure_scale) + " remaining"
+    ax = sns.lineplot(
+                    x=rho,
+                    y=percent_terminal_suppliers_reachable.description,
+                    data=res,
+                    hue='Tier count',
+                    errorbar=('pi',95),
+                    legend='full')
+    ax.set(title= attack.description.capitalize() + ' failures')
+    if save:
+        os.makedirs(prefix + 'im/'+os.path.dirname(fname),exist_ok=True)
+        plt.savefig(prefix + 'im/'+fname+'.svg')
+
 def compare_tiers(G, 
         rho=np.linspace(.3,1,71), 
         repeats=24, 
@@ -725,18 +701,7 @@ def compare_tiers(G,
     res.to_hdf(prefix + 'dat/' + fname + '.h5', key='res')
 
     if plot:
-        rho = "Percent " + get_plural(failure_scale) + " remaining"
-        ax = sns.lineplot(
-                        x=rho,
-                        y=percent_terminal_suppliers_reachable.description,
-                        data=res,
-                        hue='Tier count',
-                        errorbar=('pi',95),
-                        legend='full')
-        ax.set(title= attack.description.capitalize() + ' failures')
-        if save:
-            os.makedirs(prefix + 'im/'+os.path.dirname(fname),exist_ok=True)
-            plt.savefig(prefix + 'im/'+fname+'.svg')
+        compare_tiers_plot(res,rho,failure_scale,attack,save,prefix)
     return res
 
 def no_china_us_reachability(G,include_taiwan_hong_kong=False,prefix='.'):
@@ -779,6 +744,7 @@ def no_china_us_reachability(G,include_taiwan_hong_kong=False,prefix='.'):
 
     by_country = reachable.groupby('country').mean().reindex(['United States', 'China', 'Taiwan', 'Hong Kong'])
 
+    os.makedirs(prefix + 'dat/',exist_ok=True)
     by_country.to_excel(prefix + '/dat/no_us_china'+ ('_incl_taiwan_hk' if include_taiwan_hong_kong else '') + '.xlsx')
 
     return by_country
@@ -833,7 +799,8 @@ def run_all_simulations(
         borders=True,
         tiers=range(1,max_tiers+1),
         write_mode='w',
-        prefix=''):
+        prefix='',
+        protected_countries = []):
 
     if G is None:
         G = directed_igraph(giant=giant)
@@ -844,19 +811,18 @@ def run_all_simulations(
     full_rho = np.linspace(.3,1,71)
     failure_scales = ['firm','country','industry','country-industry']
     if attacks is None:
-        attacks = [random_thinning_factory, partial(get_pagerank_attack,transpose=True), partial(get_pagerank_attack, transpose=False), get_employee_attack]
+        attacks = [random_thinning_factory, 
+                partial(get_pagerank_attack,transpose=True, protected_countries = protected_countries), 
+                partial(get_pagerank_attack, transpose=False, protected_countries = protected_countries), 
+                partial(get_employee_attack, protected_countries = protected_countries)]
         attacks[1].description = 'Pagerank of transpose'
         attacks[2].description = 'Pagerank'
+        attacks[3].description = 'Employees'
 
     max_repeats=100
     if repeats=='min':
         max_repeats=6
 
-#    if (repeats is None) or (repeats == 'min'):
-#        repeats = dict([(random_thinning_factory,max_repeats),
-#            (attacks[1],1),
-#            (attacks[2],1),
-#            (get_employee_attack,(6 if max_repeats==6 else 24))])
     if (repeats is None) or (repeats == 'min'):
         repeats = dict()
         for attack in attacks:
@@ -869,7 +835,7 @@ def run_all_simulations(
 
 
     if rho_scales is None:
-        rho_scales = [full_rho, np.linspace(.9,1,101)]#, np.linspace(.99,1,101),np.linspace(.999,1,101),np.linspace(.9999,1,101)]
+        rho_scales = [full_rho]#, np.linspace(.9,1,101)]#, np.linspace(.99,1,101),np.linspace(.999,1,101),np.linspace(.9999,1,101)]
 
     med_suppliers = [i.index for i in get_med_suppliers(G)]
 
@@ -961,7 +927,7 @@ def run_all_simulations(
         print('no_china_us_reachability')
         no_china_us_reachability(G,include_taiwan_hong_kong=True,prefix=prefix)
         print('no_china_us_reachability')
-        no_china_us_reachability(G,include_taiwan_hong_kong=False)
+        no_china_us_reachability(G,include_taiwan_hong_kong=False,prefix=prefix)
         print('close_all_borders')
         close_all_borders(G,prefix=prefix)
         print('industry_deletion_effects')
