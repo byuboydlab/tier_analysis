@@ -1048,3 +1048,29 @@ def powerlaw_threshold_targeted(G):
 
 # ER attack is the same as ER failure
 
+def single_entity_deletion(G, scale = 'firm'):
+    assert(scale == 'firm')
+
+    med_suppliers=get_med_suppliers(G)
+    ts = [get_terminal_suppliers(i,G) for i in med_suppliers]
+
+#    def inner(i):
+#        G_thin = deepcopy(G)
+#        G_thin.delete_vertices(i)
+#        med_suppliers_thin = {i_thin['id']:i_thin.index for i_thin in G_thin.vs if i_thin['id'] in med_suppliers}
+#        us = [get_u(i,G_thin, med_suppliers_thin) for i in med_suppliers]
+#        sample = [percent_terminal_suppliers_reachable(med_suppliers,G,G_thin,t,u) for i,t,u in zip(med_suppliers,ts,us)]
+#
+#    res = dv.map(inner, range(G.vcount()))
+
+    res = []
+    for v in G.vs:
+        print(v)
+        G_thin = deepcopy(G)
+        G_thin.delete_vertices(v)
+        med_suppliers_thin = {i_thin['id']:i_thin.index for i_thin in G_thin.vs if i_thin['id'] in med_suppliers}
+        us = [get_u(i,G_thin, med_suppliers_thin) for i in med_suppliers]
+        sample = [percent_terminal_suppliers_reachable(med_suppliers,G,G_thin,t,u) for i,t,u in zip(med_suppliers,ts,us)]
+        res.append(np.mean(sample))
+
+    return res
