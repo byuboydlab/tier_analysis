@@ -37,7 +37,7 @@ def get_node_breakdown_threshold(node, G, breakdown_threshold, thinning_ratio):
 
         # delete thinning_ratio percent of nodes from G_thin
         to_delete = G_thin.vs(np.random.randint(
-            0, len(G_thin.vs), int(thinning_ratio * len(G_thin.vs))))
+            0, G_thin.vcount(), int(thinning_ratio * G_thin.vcount())))
         G_thin.delete_vertices(to_delete)
 
         # reachable node count
@@ -74,10 +74,10 @@ if __name__ == '__main__':
         import ipyparallel
         with ipyparallel.Cluster(n=parallel_job_count) as rc:
             rc.wait_for_engines(parallel_job_count)
-            dv = rc[:]
-            dv.block = False
-            dv.use_dill()
-            with dv.sync_imports():
+            lv = rc.load_balanced_view()
+            lv.block = False
+            rc[:].use_dill()
+            with rc[:].sync_imports():
                 from pharma_analysis import get_node_breakdown_threshold
 
             def repeat_breakdown_test(
@@ -93,7 +93,7 @@ if __name__ == '__main__':
                         breakdown_threshold,
                         thinning_ratio) for _ in range(repeats_per_node)]
 
-            res = dv.map(repeat_breakdown_test,
+            res = lv.map(repeat_breakdown_test,
                          [v.index for v in nodes],
                          [G for _ in nodes],
                          [breakdown_threshold for _ in nodes],
