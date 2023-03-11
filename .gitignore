@@ -31,3 +31,4 @@ temp*
 tyler_burrows
 us_protected
 .gitignore
+*.csv
