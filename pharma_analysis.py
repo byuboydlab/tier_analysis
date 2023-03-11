@@ -69,12 +69,14 @@ if __name__ == '__main__':
             def repeat_breakdown_test(node,G, breakdown_threshold, thinning_ratio, repeats_per_node):
                 return [get_node_breakdown_threshold(G.vs[node], G, breakdown_threshold, thinning_ratio) for _ in range(repeats_per_node)]
             
-            res = dv.map_sync(repeat_breakdown_test, 
+            res = dv.map(repeat_breakdown_test, 
                     [v.index for v in nodes],
                     [G for _ in nodes],
                     [breakdown_threshold for _ in nodes],
                     [thinning_ratio for _ in  nodes],
                     [repeats_per_node for _ in  nodes])
+            res.wait_interactive()
+            res = res.get()
             # change res to df indexed by node
             for i,node in enumerate(nodes):
                 thresholds.loc[node['name'],:] = res[i]
