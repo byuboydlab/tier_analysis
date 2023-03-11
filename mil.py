@@ -1,0 +1,3 @@
+# Analyses specific to military supply chain
+nato= ['Albania', 'Belgium', 'Bulgaria', 'Canada', 'Croatia', 'Czech Republic', 'Denmark', 'Estonia', 'France', 'Germany', 'Greece', 'Hungary', 'Iceland', 'Italy', 'Latvia', 'Lithuania', 'Luxembourg', 'Montenegro', 'Netherlands', 'Norway', 'Poland', 'Portugal', 'Romania', 'Slovakia', 'Slovenia', 'Spain', 'Turkey', 'United Kingdom', 'United States']
+north_america = ['Bahamas', 'Barbados', 'Belize', 'Bermuda', 'British Virgin Islands', 'Canada', 'Cayman Islands', 'Costa Rica', 'Curaçao', 'Dominican Republic', 'El Salvador', 'Gibraltar', 'Guadeloupe', 'Guatemala', 'Honduras', 'Jamaica', 'Panama', 'Saint Lucia', 'Trinidad & Tobago', 'United States']
