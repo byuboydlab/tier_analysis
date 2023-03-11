@@ -2,6 +2,7 @@ import sc
 import pandas as pd
 import igraph as ig
 import numpy as np
+import itertools
 
 breakdown_threshold = 0.99
 thinning_ratio = 0.02
@@ -85,25 +86,24 @@ if __name__ == '__main__':
                     G,
                     breakdown_threshold,
                     thinning_ratio,
-                    repeats_per_node):
-                return [
-                    get_node_breakdown_threshold(
+                    repeat_idx):
+                return get_node_breakdown_threshold(
                         G.vs[node],
                         G,
                         breakdown_threshold,
-                        thinning_ratio) for _ in range(repeats_per_node)]
+                        thinning_ratio)
+
+            # make an iterator that is the product of nodes and repeats_per_node
+            pairs = [(v.index, G, breakdown_threshold, thinning_ratio, i)
+                    for v,i in itertools.product(nodes, range(repeats_per_node))]
 
             res = lv.map(repeat_breakdown_test,
-                         [v.index for v in nodes],
-                         [G for _ in nodes],
-                         [breakdown_threshold for _ in nodes],
-                         [thinning_ratio for _ in nodes],
-                         [repeats_per_node for _ in nodes])
+                         *zip(*pairs))
             res.wait_interactive()
             res = res.get()
-            # change res to df indexed by node
-            for i, node in enumerate(nodes):
-                thresholds.loc[node['name'], :] = res[i]
+
+            for i, (v_idx, _, _, _, i_idx) in enumerate(pairs):
+                thresholds.loc[G.vs[v_idx]['name'], i_idx] = res[i]
             # save thresholds to excel file with breakdown threshold and
             # thinning ratio in filename
             fname = 'dat/pharma_thresholds_{0:.2f}_{1:.3f}.xlsx'.format(
