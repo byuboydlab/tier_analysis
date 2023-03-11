@@ -3,10 +3,12 @@ import pandas as pd
 import igraph as ig
 import numpy as np
 
-breakdown_threshold = 0.95
-thinning_ratio = 0.002
-repeats_per_node = 20
-parallel_job_count = 68
+breakdown_threshold = 0.99
+thinning_ratio = 0.02
+repeats_per_node = 2
+parallel = True
+parallel_job_count = 5
+parallel_node_limit = 10 # for testing. set to None to run all nodes
 
 edge_df = pd.read_csv('dat/pharma_supply_chain.csv')
 edge_df.drop('Unnamed: 0',axis=1,inplace=True)
@@ -45,14 +47,18 @@ def get_node_breakdown_threshold(node, G, breakdown_threshold, thinning_ratio):
 
 if __name__ == '__main__':
     itercount = 0
-    thresholds = pd.DataFrame(np.zeros((len(G.vs.select(Tier=0)),repeats_per_node)),index=G.vs.select(Tier=0)['name'],columns=list(range(repeats_per_node)))
 
-    parallel=True
+    nodes = G.vs.select(Tier=0)
+    if parallel_node_limit:
+        nodes = nodes[:parallel_node_limit]
+
+    thresholds = pd.DataFrame(np.zeros((len(nodes),repeats_per_node)),index=nodes['name'],columns=list(range(repeats_per_node)))
+
     if parallel:
         import ipyparallel
-        with ipyparallel.Cluster(n=68) as rc:
+        with ipyparallel.Cluster(n=parallel_job_count) as rc:
             #rc = cluster.start_and_connect_sync()
-            rc.wait_for_engines(68)
+            rc.wait_for_engines(parallel_job_count)
             dv = rc[:]
             #dv = ipyparallel.Client()[:] # This should be global (or a singleton) to avoid an error with too many files open https://github.com/ipython/ipython/issues/6039
             dv.block=False
@@ -64,11 +70,20 @@ if __name__ == '__main__':
                 return [get_node_breakdown_threshold(G.vs[node], G, breakdown_threshold, thinning_ratio) for _ in range(repeats_per_node)]
             
             res = dv.map_sync(repeat_breakdown_test, 
-                    [v.index for v in G.vs.select(Tier=0)], 
-                    [G for _ in G.vs.select(Tier=0)], 
-                    [breakdown_threshold for _ in G.vs.select(Tier=0)], 
-                    [thinning_ratio for _ in G.vs.select(Tier=0)],
-                    [repeats_per_node for _ in G.vs.select(Tier=0)])
+                    [v.index for v in nodes],
+                    [G for _ in nodes],
+                    [breakdown_threshold for _ in nodes],
+                    [thinning_ratio for _ in  nodes],
+                    [repeats_per_node for _ in  nodes])
+            # change res to df indexed by node
+            for i,node in enumerate(nodes):
+                thresholds.loc[node['name'],:] = res[i]
+            # save thresholds to excel file with breakdown threshold and thinning ratio in filename
+            fname = 'dat/pharma_thresholds_{0:.2f}_{1:.3f}.xlsx'.format(breakdown_threshold,thinning_ratio)
+            # add date and time to filename
+            import datetime
+            fname = fname[:-5] + '_' + datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S') + fname[-5:]
+            thresholds.to_excel(fname)
     else:
         for node in G.vs.select(Tier=0):
             # print progress bar
