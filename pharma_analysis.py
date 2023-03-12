@@ -4,12 +4,12 @@ import igraph as ig
 import numpy as np
 import itertools
 
-breakdown_threshold = 0.90
-thinning_ratio = 0.002
+breakdown_threshold = 0.95
+thinning_ratio = 0.02
 repeats_per_node = 2
 parallel = True
 parallel_job_count = 5
-parallel_node_limit = 10  # for testing. set to None to run all nodes
+parallel_node_limit = 100  # for testing. set to None to run all nodes
 
 edge_df = pd.read_csv('dat/pharma_supply_chain.csv')
 edge_df.drop('Unnamed: 0', axis=1, inplace=True)
@@ -22,7 +22,6 @@ edge_df.rename(
 
 G = sc.igraph_simple(edge_df)
 sc.get_node_tier_from_edge_tier(G)
-
 
 def get_node_breakdown_threshold(node, G, breakdown_threshold, thinning_ratio):
 
@@ -62,7 +61,12 @@ def get_node_breakdown_threshold(node, G, breakdown_threshold, thinning_ratio):
 if __name__ == '__main__':
     itercount = 0
 
+    # get nodes with at least 500 reachable nodes
     nodes = G.vs.select(Tier=0)
+    reachability_counts = pd.read_csv('reachability_counts.csv', index_col=0)
+    reachability_counts = reachability_counts[reachability_counts >= 500] # cutoff to exclude nodes with few reachable nodes
+    nodes = nodes.select(name_in=reachability_counts.index)
+
     if parallel_node_limit:
         nodes = nodes[:parallel_node_limit]
 
