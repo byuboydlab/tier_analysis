@@ -4,8 +4,8 @@ import igraph as ig
 import numpy as np
 import itertools
 
-breakdown_threshold = 0.99
-thinning_ratio = 0.02
+breakdown_threshold = 0.90
+thinning_ratio = 0.002
 repeats_per_node = 2
 parallel = True
 parallel_job_count = 5
@@ -79,22 +79,18 @@ if __name__ == '__main__':
             lv.block = False
             rc[:].use_dill()
             with rc[:].sync_imports():
-                from pharma_analysis import get_node_breakdown_threshold
+                from pharma_analysis import get_node_breakdown_threshold, G, breakdown_threshold, thinning_ratio
+
+            rc[:].push(dict(G=G, breakdown_threshold=breakdown_threshold,
+                thinning_ratio=thinning_ratio))
 
             def repeat_breakdown_test(
                     node,
-                    G,
-                    breakdown_threshold,
-                    thinning_ratio,
                     repeat_idx):
-                return get_node_breakdown_threshold(
-                        G.vs[node],
-                        G,
-                        breakdown_threshold,
-                        thinning_ratio)
+                return get_node_breakdown_threshold(G.vs[node], G, breakdown_threshold, thinning_ratio)
 
             # make an iterator that is the product of nodes and repeats_per_node
-            pairs = [(v.index, G, breakdown_threshold, thinning_ratio, i)
+            pairs = [(v.index, i)
                     for v,i in itertools.product(nodes, range(repeats_per_node))]
 
             res = lv.map(repeat_breakdown_test,
@@ -102,7 +98,7 @@ if __name__ == '__main__':
             res.wait_interactive()
             res = res.get()
 
-            for i, (v_idx, _, _, _, i_idx) in enumerate(pairs):
+            for i, (v_idx, i_idx) in enumerate(pairs):
                 thresholds.loc[G.vs[v_idx]['name'], i_idx] = res[i]
             # save thresholds to excel file with breakdown threshold and
             # thinning ratio in filename
