@@ -3,13 +3,14 @@ import pandas as pd
 import igraph as ig
 import numpy as np
 import itertools
+import os
 
-breakdown_threshold = 0.95
+breakdown_threshold = 0.99
 thinning_ratio = 0.02
 repeats_per_node = 2
 parallel = True
 parallel_job_count = 5
-parallel_node_limit = 100  # for testing. set to None to run all nodes
+parallel_node_limit = 10  # for testing. set to None to run all nodes
 
 edge_df = pd.read_csv('dat/pharma_supply_chain.csv')
 edge_df.drop('Unnamed: 0', axis=1, inplace=True)
@@ -18,8 +19,7 @@ edge_df.rename(
         'source': "Source",
         'target': "Target",
         'tier': "Tier"},
-    inplace=True)
-
+    inplace=True) 
 G = sc.igraph_simple(edge_df)
 sc.get_node_tier_from_edge_tier(G)
 
@@ -91,7 +91,32 @@ if __name__ == '__main__':
             def repeat_breakdown_test(
                     node,
                     repeat_idx):
-                return get_node_breakdown_threshold(G.vs[node], G, breakdown_threshold, thinning_ratio)
+                res = get_node_breakdown_threshold(G.vs[node], G, breakdown_threshold, thinning_ratio)
+                # write res to file with node and repeat_idx in file name
+                with open('dat/pharma_thresholds_{0:.2f}_{1:.3f}_{2}_{3}.txt'.format(
+                    breakdown_threshold, thinning_ratio, node, repeat_idx), 'w') as f:
+                    f.write(str(res))
+                return res
+
+            # delete all files we are about to try writing
+            for node, repeat_idx in itertools.product(nodes, range(repeats_per_node)):
+                try:
+                    os.remove('dat/pharma_thresholds_{0:.2f}_{1:.3f}_{2}_{3}.txt'.format(
+                        breakdown_threshold, thinning_ratio, node, repeat_idx))
+                except OSError:
+                    pass
+
+#            # for testing, make repeat_breakdown_test a function of that randomly hangs for 1000 seconds sometimes
+#            def hangs_sometimes(node, repeat_idx):
+#                import time
+#                import random
+#                if random.random() < 0.1:
+#                    time.sleep(1000)
+#                res = get_node_breakdown_threshold(G.vs[node], G, breakdown_threshold, thinning_ratio)
+#                # write res to file with node and repeat_idx in file name
+#                with open('dat/pharma_thresholds_{0:.2f}_{1:.3f}_{2}_{3}.txt'.format(
+#                    breakdown_threshold, thinning_ratio, node, repeat_idx), 'w') as f:
+#                    f.write(str(res))
 
             # make an iterator that is the product of nodes and repeats_per_node
             pairs = [(v.index, i)
@@ -99,20 +124,31 @@ if __name__ == '__main__':
 
             res = lv.map(repeat_breakdown_test,
                          *zip(*pairs))
-            res.wait_interactive()
-            res = res.get()
 
-            for i, (v_idx, i_idx) in enumerate(pairs):
-                thresholds.loc[G.vs[v_idx]['name'], i_idx] = res[i]
-            # save thresholds to excel file with breakdown threshold and
-            # thinning ratio in filename
-            fname = 'dat/pharma_thresholds_{0:.2f}_{1:.3f}.xlsx'.format(
-                breakdown_threshold, thinning_ratio)
-            # add date and time to filename
-            import datetime
-            fname = fname[:-5] + '_' + \
-                datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S') + fname[-5:]
-            thresholds.to_excel(fname)
+            try:
+                res.wait_interactive()
+                res = res.get()
+    
+                for i, (v_idx, i_idx) in enumerate(pairs):
+                    thresholds.loc[G.vs[v_idx]['name'], i_idx] = res[i]
+                # save thresholds to excel file with breakdown threshold and
+                # thinning ratio in filename
+                fname = 'dat/pharma_thresholds_{0:.2f}_{1:.3f}.xlsx'.format(
+                    breakdown_threshold, thinning_ratio)
+                # add date and time to filename
+                import datetime
+                fname = fname[:-5] + '_' + \
+                    datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S') + fname[-5:]
+                thresholds.to_excel(fname)
+            except KeyboardInterrupt:
+                # fill thresholds with the saved results
+                for i, (v_idx, i_idx) in enumerate(pairs):
+                    fname = 'dat/pharma_thresholds_{0:.2f}_{1:.3f}_{2}_{3}.txt'.format(
+                        breakdown_threshold, thinning_ratio, v_idx, i_idx)
+                    # only open if file exists
+                    if os.path.isfile(fname):
+                        with open(fname, 'r') as f:
+                            thresholds.loc[G.vs[v_idx]['name'], i_idx] = float(f.read())
     else:
         for node in G.vs.select(Tier=0):
             # print progress bar
