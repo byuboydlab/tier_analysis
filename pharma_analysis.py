@@ -5,12 +5,12 @@ import numpy as np
 import itertools
 import os
 
-breakdown_threshold = 0.99
-thinning_ratio = 0.02
-repeats_per_node = 2
+breakdown_threshold = 0.85
+thinning_ratio = 0.005
+repeats_per_node = 20
 parallel = True
-parallel_job_count = 5
-parallel_node_limit = 10  # for testing. set to None to run all nodes
+parallel_job_count = 68
+parallel_node_limit = None  # for testing. set to None to run all nodes
 
 edge_df = pd.read_csv('dat/pharma_supply_chain.csv')
 edge_df.drop('Unnamed: 0', axis=1, inplace=True)
@@ -131,15 +131,6 @@ if __name__ == '__main__':
     
                 for i, (v_idx, i_idx) in enumerate(pairs):
                     thresholds.loc[G.vs[v_idx]['name'], i_idx] = res[i]
-                # save thresholds to excel file with breakdown threshold and
-                # thinning ratio in filename
-                fname = 'dat/pharma_thresholds_{0:.2f}_{1:.3f}.xlsx'.format(
-                    breakdown_threshold, thinning_ratio)
-                # add date and time to filename
-                import datetime
-                fname = fname[:-5] + '_' + \
-                    datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S') + fname[-5:]
-                thresholds.to_excel(fname)
             except KeyboardInterrupt:
                 # fill thresholds with the saved results
                 for i, (v_idx, i_idx) in enumerate(pairs):
@@ -149,6 +140,15 @@ if __name__ == '__main__':
                     if os.path.isfile(fname):
                         with open(fname, 'r') as f:
                             thresholds.loc[G.vs[v_idx]['name'], i_idx] = float(f.read())
+            # save thresholds to excel file with breakdown threshold and
+            # thinning ratio in filename
+            fname = 'dat/pharma_thresholds_{0:.2f}_{1:.3f}.xlsx'.format(
+                breakdown_threshold, thinning_ratio)
+            # add date and time to filename
+            import datetime
+            fname = fname[:-5] + '_' + \
+                datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S') + fname[-5:]
+            thresholds.to_excel(fname)
     else:
         for node in G.vs.select(Tier=0):
             # print progress bar
