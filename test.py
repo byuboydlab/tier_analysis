@@ -121,6 +121,41 @@ def test_get_terminal_nodes_1_tree():
     node = G.vs.select(name=0)[0]
     assert len(sc.get_terminal_nodes(node, G)) == 1000
 
+def tree_graph_test():
+    tree_depth = 5
+    tree_count = 20
+    repeats = 12
+    degree = 4
+    tol = .05
+
+    N = int((degree**(tree_depth + 1) - 1) / (tree_depth - 1))
+
+    Gs = []
+    for i in range(tree_count):
+        G = ig.Graph.Tree(N, degree, "in")
+        for scale in ['country', 'industry', 'country-industry']:
+            G.vs[scale] = ['foo'] * N
+        G.vs['name'] = list(range(i * N, (i + 1) * N))
+        Gs.append(G)
+    G = ig.operators.union(Gs)
+
+    med_suppliers = [i * N for i in range(tree_count)]
+
+    res = failure_reachability(G, med_suppliers=med_suppliers, repeats=repeats)
+
+    gb = res.groupby('Percent firms remaining')
+    observed = gb.mean()['Avg. percent end suppliers reachable']
+    rho = gb.first().index
+    expected = rho**(tree_depth + 1)
+    plt.plot(rho, expected)
+
+    abs_err = np.max(np.abs(observed - expected))
+    if abs_err < tol:
+        print("passed with error " + str(abs_err))
+    else:
+        print("failed with error " + str(abs_err))
+
+    return res
 
 if __name__ == "__main__":
     test_get_node_breakdown_threshold()

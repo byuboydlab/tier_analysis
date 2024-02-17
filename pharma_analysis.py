@@ -5,7 +5,7 @@ import numpy as np
 import itertools
 import os
 
-breakdown_threshold = 0.85
+breakdown_threshold = 0.80
 thinning_ratio = 0.005
 repeats_per_node = 20
 parallel = True
@@ -50,7 +50,7 @@ def get_node_breakdown_threshold(node, G, breakdown_threshold, thinning_ratio):
         reachable_node_count = len(
             sc.get_reachable_nodes(
                 node_thin.index,
-                G_thin) & set(terminal_nodes))
+                G_thin) & terminal_nodes)
 
     # store number of nodes deleted
     node['Deleted count'] = len(G.vs) - len(G_thin.vs)

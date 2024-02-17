@@ -2,7 +2,7 @@ import powerlaw
 import pandas as pd
 import igraph as ig
 import numpy as np
-import ipyparallel
+import ipyparallel as ipp
 import matplotlib.pyplot as plt
 import pickle
 import logging
@@ -14,13 +14,19 @@ import random
 import seaborn as sns
 from functools import partial
 import matplotlib
+import tables # pytables needed to write to hdf
 
 # User-set parameters
 
-max_tiers = 10
+max_tiers = 16
 has_ipyparallel = True
+parallel_job_count = 6
+has_metadata = False
 
 # Code for building the graph
+
+def get_demand_nodes(G):
+    return list({x.target_vertex for x in G.es(Tier=1)})
 
 
 def igraph_simple(edge_df):
@@ -115,13 +121,13 @@ def get_edge_df(df=None):
 def get_shortcut_edges(G):
     fdf = get_firm_df()
     fdf = pd.concat([fdf,
-                     pd.DataFrame(dict(tier=G.vs['tier'],
+                     pd.DataFrame(dict(tier=G.vs['Tier'],
                                        clean_tier=G.vs['clean_tier']),
                                   index=G.vs['name'])],
                     axis=1)
     df = get_df()
-    df['Source tier'] = df.Source.map(lambda x: fdf.loc[x]['tier'])
-    df['Target tier'] = df.Target.map(lambda x: fdf.loc[x]['tier'])
+    df['Source tier'] = df.Source.map(lambda x: fdf.loc[x]['Tier'])
+    df['Target tier'] = df.Target.map(lambda x: fdf.loc[x]['Tier'])
 
     return df[df['Source tier'] > df['Target tier'] + 1]
 
@@ -157,11 +163,11 @@ def directed_igraph(*,
     G.vs['firm name'] = firm_df['name']
     for attr in ['industry', 'country', 'country-industry', 'Employees']:
         G.vs[attr] = firm_df[attr]
-    G.vs['tier'] = firm_df['Tier']
+    G.vs['Tier'] = firm_df['Tier']
 
     G.add_edges(edge_df[['Source', 'Target']].itertuples(index=False))
 
-    G.es['tier'] = edge_df.Tier.values
+    G.es['Tier'] = edge_df.Tier.values
     # use min to keep smaller tier value.
     G.simplify(loops=False, combine_edges='min')
 
@@ -209,22 +215,22 @@ def directed_igraph(*,
             # tier += 1
 
         if overwrite_old_tiers:
-            G.vs['tier'] = G.vs['clean_tier']
+            G.vs['Tier'] = G.vs['clean_tier']
             for e in G.es:
-                e['tier'] = e.target_vertex['tier'] + 1
+                e['Tier'] = e.target_vertex['Tier'] + 1
 
         G = G.induced_subgraph(to_keep)
     else:
-        G.vs['tier_set'] = [{e['tier'] for e in n.out_edges()}
+        G.vs['tier_set'] = [{e['Tier'] for e in n.out_edges()}
                             for n in G.vs]
-        G.vs['tier'] = [min(x['tier_set'], default=0) for x in G.vs]
+        G.vs['Tier'] = [min(x['tier_set'], default=0) for x in G.vs]
 
     if giant:
         # this turns out to be a no-op if you do clean-tiers with 10 tiers
         G = G.components(mode='WEAK').giant()
 
     for v in get_demand_nodes(G):
-        v['tier'] = 0
+        v['Tier'] = 0
         try:
             v['tier_set'].add(0)
         except BaseException:
@@ -238,6 +244,8 @@ def directed_igraph(*,
     med_suppliers = get_demand_nodes(G)
     G.vs['is_demand_node'] = [i in med_suppliers for i in G.vs]
     G.reversed = False
+
+    G[45]
 
     try:
         for firm in [
@@ -274,15 +282,12 @@ def clean_prefix(prefix):
     return prefix
 
 
-def get_demand_nodes(G):
-    return list({x.target_vertex for x in G.es(tier=1)})
-
 
 def reverse(G):
-    tier = dict(tier=G.es['tier'])
+    Tier = dict(Tier=G.es['Tier'])
     edges = [tuple(reversed(e.tuple)) for e in G.es]
     G.delete_edges(None)
-    G.add_edges(edges, tier)
+    G.add_edges(edges, Tier)
     G.reversed = not G.reversed
 
 
@@ -298,8 +303,8 @@ def get_terminal_nodes(node, G):
     terminal_components = sccs.cluster_graph().vs(_indegree_eq=0)
     sccs = list(sccs)
     terminal_nodes = [sccs[node.index] for node in terminal_components]
-    terminal_nodes = [reachable_graph.vs[node]['name']
-                      for node in itertools.chain(*terminal_nodes)]
+    terminal_nodes = {reachable_graph.vs[node]['name']
+                      for node in itertools.chain(*terminal_nodes)}
     return terminal_nodes
 
 # All I need now is a way to efficiently get t_thin (indices of t in G_thin)
@@ -421,7 +426,7 @@ def percent_terminal_suppliers_reachable(i, G, G_thin, t=None, u=None):
     if u is None:
         u = get_u(i, G_thin)
 
-    return len(t & u) / len(t)
+    return len(set(t) & u) / len(t)
 
 
 percent_terminal_suppliers_reachable.description = 'Avg. percent end suppliers reachable'
@@ -449,10 +454,11 @@ def random_thinning_factory(G):
 
     uniques = dict()
     perm = dict()
-    for failure_scale in ['country', 'industry', 'country-industry']:
-        uniques[failure_scale] = list(set(G.vs[failure_scale]))
-        perm[failure_scale] = uniques[failure_scale]
-        random.shuffle(perm[failure_scale])
+    if has_metadata:
+        for failure_scale in ['country', 'industry', 'country-industry']:
+            uniques[failure_scale] = list(set(G.vs[failure_scale]))
+            perm[failure_scale] = uniques[failure_scale]
+            random.shuffle(perm[failure_scale])
 
     def attack(rho, failure_scale='firm'):
         if failure_scale == 'firm':
@@ -573,14 +579,19 @@ get_null_attack.description = 'Null'  # -targeted'
 
 # Failure reachability simulations
 
-# try:
-#     dv = ipyparallel.Client()[:] # This should be global (or a singleton) to avoid an error with too many files open https://github.com/ipython/ipython/issues/6039
-#     dv.block=False
-#     dv.use_dill()
-# except:
-#     has_ipyparallel = False
-#     print("Loading without ipyparallel support")
-
+n_cpus = len(os.sched_getaffinity(0))
+cluster = ipp.Cluster(n = n_cpus - 2)
+cluster_is_started = False
+def get_dv():
+    global cluster_is_started
+    if not cluster_is_started:
+        cluster.start_cluster_sync()
+        cluster_is_started = True
+    client = cluster.connect_client_sync()
+    client.wait_for_engines()
+    dv = client[:]
+    dv.use_dill()
+    return dv
 
 def single_entity_deletion(G, scale='firm'):
     assert (scale == 'firm')
@@ -604,93 +615,7 @@ def single_entity_deletion(G, scale='firm'):
 
     return res
 
-
-def failure_reachability_single(
-        r,
-        G,
-        med_suppliers=False,
-        ts=False,
-        failure_scale='firm',
-        callbacks=callbacks,
-        targeted=False):
-
-    if not med_suppliers:
-        med_suppliers = get_demand_nodes(G)
-    if not ts:
-        ts = [get_terminal_nodes(i, G) for i in med_suppliers]
-    if not targeted:
-        targeted = random_thinning_factory(G)
-
-    G_thin = targeted(r, failure_scale=failure_scale)
-    med_suppliers_thin = {
-        i_thin['name']: i_thin.index for i_thin in G_thin.vs if i_thin['name'] in med_suppliers}
-
-    res = dict()
-    us = [get_u(i, G_thin, med_suppliers_thin) for i in med_suppliers]
-    for cb in callbacks:
-        sample = [cb(med_suppliers, G, G_thin, t, u)
-                  for i, t, u in zip(med_suppliers, ts, us)]
-        res[cb.description] = np.mean(sample)
-    res['Failure scale'] = failure_scale
-    res['Attack type'] = targeted.description
-    return res
-
-
-def failure_reachability_sweep(G,
-                               rho=np.linspace(.3,
-                                               1,
-                                               71),
-                               med_suppliers=False,
-                               ts=False,
-                               failure_scale='firm',
-                               callbacks=callbacks,
-                               targeted_factory=random_thinning_factory,
-                               parallel=False):
-
-    if failure_scale == 'industry':
-        G = deepcopy(G)
-        impute_industry(G)
-
-    if not med_suppliers:
-        med_suppliers = [i.index for i in get_demand_nodes(G)]
-    if not ts:
-        ts = [get_terminal_nodes(i, G) for i in med_suppliers]
-
-    avgs = []
-    if parallel:
-        avgs = dv.map(failure_reachability_single,
-                      rho,
-                      *list(zip(*[[G,
-                                   med_suppliers,
-                                   ts,
-                                   failure_scale,
-                                   callbacks,
-                                   targeted_factory(G)]] * len(rho))))
-    else:
-        targeted = targeted_factory(G)
-        for r in rho:
-            print(r)
-            avgs.append(
-                failure_reachability_single(
-                    r,
-                    G,
-                    med_suppliers,
-                    ts,
-                    failure_scale=failure_scale,
-                    callbacks=callbacks,
-                    targeted=targeted))
-
-    avgs = [pd.DataFrame(a, index=[0]) for a in avgs]
-    avgs = pd.concat(avgs, ignore_index=True)
-    rho_name = "Percent " + get_plural(failure_scale) + " remaining"
-    avgs[rho_name] = rho
-    cols = list(avgs.columns)
-    avgs = avgs[cols[-1:] + cols[:-1]]
-
-    return avgs
-
 # Plots
-
 
 def failure_plot(
         avgs,
@@ -752,6 +677,122 @@ def attack_compare_plot(
     return ax
 
 
+def failure_reachability_single(
+        r,
+        G,
+        med_suppliers=False,
+        ts=False,
+        failure_scale='firm',
+        callbacks=callbacks,
+        targeted=False):
+
+    write_test_file()
+
+    if not med_suppliers:
+        med_suppliers = get_demand_nodes(G)
+    if not ts:
+        ts = [set(get_terminal_nodes(i, G)) for i in med_suppliers]
+    if not targeted:
+        targeted = random_thinning_factory(G)
+
+    G_thin = targeted(r, failure_scale=failure_scale)
+    med_suppliers_thin = {
+        i_thin['name']: i_thin.index for i_thin in G_thin.vs if i_thin['name'] in med_suppliers}
+
+    res = dict()
+    us = [get_u(i, G_thin, med_suppliers_thin) for i in med_suppliers]
+    for cb in callbacks:
+        sample = [cb(med_suppliers, G, G_thin, t, u)
+                  for i, t, u in zip(med_suppliers, ts, us)]
+        res[cb.description] = np.mean(sample)
+    res['Failure scale'] = failure_scale
+    res['Attack type'] = targeted.description
+    return res
+
+def write_test_file():
+    # save a file whose name contains the time and process id
+    import time
+    import os
+    import sys
+    import pickle
+    pickle.dump(
+            [1,2,3],
+            open(
+                'G_{}_{}.pkl'.format(
+                    time.strftime(
+                        "%Y%m%d-%H%M%S"),
+                    os.getpid()),
+                'wb'))
+
+
+def failure_reachability_sweep(G,
+                               rho=np.linspace(.3,
+                                               1,
+                                               71),
+                               med_suppliers=False,
+                               ts=False,
+                               failure_scale='firm',
+                               callbacks=callbacks,
+                               targeted_factory=random_thinning_factory,
+                               parallel=False):
+
+    if failure_scale == 'industry':
+        G = deepcopy(G)
+        impute_industry(G)
+
+    if not med_suppliers:
+        med_suppliers = [i.index for i in get_demand_nodes(G)]
+    if not ts:
+        ts = [set(get_terminal_nodes(i, G)) for i in med_suppliers]
+
+    avgs = []
+    if parallel:
+        dv = get_dv()
+        with dv.sync_imports():
+            import sc
+        dv['G'] = G
+        dv['med_suppliers'] = med_suppliers
+        dv['ts'] = ts
+        dv['failure_scale'] = failure_scale
+        dv['callbacks'] = callbacks
+        dv['targeted_factory'] = targeted_factory
+
+        assert(False)
+
+        avgs = dv.map(failure_reachability_single,
+                  rho,
+                  *list(zip(*[[G,
+                               med_suppliers,
+                               ts,
+                               failure_scale,
+                               callbacks,
+                               targeted_factory(G)]] * len(rho))))
+    else:
+
+        targeted = targeted_factory(G)
+
+        for r in rho:
+            print(r)
+            avgs.append(
+                failure_reachability_single(
+                    r,
+                    G,
+                    med_suppliers,
+                    ts,
+                    failure_scale=failure_scale,
+                    callbacks=callbacks,
+                    targeted=targeted))
+
+    avgs = [pd.DataFrame(a, index=[0]) for a in avgs]
+    avgs = pd.concat(avgs, ignore_index=True)
+    rho_name = "Percent " + get_plural(failure_scale) + " remaining"
+    avgs[rho_name] = rho
+    cols = list(avgs.columns)
+    avgs = avgs[cols[-1:] + cols[:-1]]
+
+    return avgs
+
+
 def failure_reachability(G,
                          rho=np.linspace(.3, 1, 71),
                          plot=True,
@@ -785,8 +826,25 @@ def failure_reachability(G,
             ] * repeats  # Beware here that the copy here is very shallow
 
     if parallel == 'repeat':
-        avgs = dv.map(failure_reachability_sweep,
-                      *list(zip(*args)))
+        print('doing parallel map now')
+        dv = get_dv()
+        with dv.sync_imports():
+            import sc
+        dv['G'] = G
+        dv['med_suppliers'] = med_suppliers
+        dv['t'] = t
+        dv['failure_scale'] = failure_scale
+        dv['callbacks'] = callbacks
+        dv['targeted_factory'] = targeted_factory
+
+        #def wrapper(x):
+            #return sc.failure_reachability_sweep(G, med_suppliers, t, rho, failure_scale, callbacks, targeted_factory)
+
+        #avgs = dv.map(wrapper, range(repeats))
+        avgs = dv.map(lambda x: sc.failure_reachability(G, med_suppliers, t, rho, failure_scale, callbacks, targeted_factory), range(repeats))
+#
+#        avgs = dv.map(failure_reachability_sweep,
+#                    *list(zip(*args)))
     elif parallel == 'rho':
         avgs = [failure_reachability_sweep(*args[0], parallel=True)]
     else:
@@ -826,8 +884,8 @@ def failure_reachability(G,
 def reduce_tiers(G, tiers):
     # This can delete some edges even if tier=max_tier, since there can be
     # edges of tier max_tier+1
-    G.delete_edges(G.es(tier_ge=tiers + 1))
-    G.delete_vertices(G.vs(tier_ge=tiers + 1))
+    G.delete_edges(G.es(Tier_ge=tiers + 1))
+    G.delete_vertices(G.vs(Tier_ge=tiers + 1))
     G.vs['name'] = list(range(G.vcount()))
     for attr in [
         'Pagerank',
@@ -858,6 +916,10 @@ def compare_tiers_plot(res,
         legend='full')
     ax.set(title=attack.description.capitalize() + ' failures')
     if save:
+        fname = failure_scale\
+            + '_' + attack.description.replace(' ', '_').lower()\
+            + '_range_' + str(rho[0]) + '_' + str(rho[-1])\
+            + '_tiers_' + str(res['Tier count'].min()) + '_' + str(res['Tier count'].max())
         os.makedirs(prefix + 'im/' + os.path.dirname(fname), exist_ok=True)
         plt.savefig(prefix + 'im/' + fname + '.svg')
 
@@ -921,112 +983,3 @@ def required_tiers(res, attack, scale):
     tol = .05
     return np.nonzero(maxes < tol)[0][0] + 1
 
-# Tests
-
-
-def tree_graph_test():
-    tree_depth = 5
-    tree_count = 20
-    repeats = 12
-    degree = 4
-    tol = .05
-
-    N = int((degree**(tree_depth + 1) - 1) / (tree_depth - 1))
-
-    Gs = []
-    for i in range(tree_count):
-        G = ig.Graph.Tree(N, degree, "in")
-        for scale in ['country', 'industry', 'country-industry']:
-            G.vs[scale] = ['foo'] * N
-        G.vs['name'] = list(range(i * N, (i + 1) * N))
-        Gs.append(G)
-    G = ig.operators.union(Gs)
-
-    med_suppliers = [i * N for i in range(tree_count)]
-
-    res = failure_reachability(G, med_suppliers=med_suppliers, repeats=repeats)
-
-    gb = res.groupby('Percent firms remaining')
-    observed = gb.mean()['Avg. percent end suppliers reachable']
-    rho = gb.first().index
-    expected = rho**(tree_depth + 1)
-    plt.plot(rho, expected)
-
-    abs_err = np.max(np.abs(observed - expected))
-    if abs_err < tol:
-        print("passed with error " + str(abs_err))
-    else:
-        print("failed with error " + str(abs_err))
-
-    return res
-
-# Classical thresholds
-
-
-def breakdown_thresholds(res, tol=.2):
-
-    t = pd.DataFrame()
-    for attack in [
-            random_thinning_factory,
-            get_pagerank_attack,
-            get_pagerank_attack_no_transpose,
-            get_employee_attack]:
-        for scale in res['Failure scale'].unique():
-            x = res[(res['Failure scale'] == scale) & (res['Attack type'] == attack.description)].groupby(
-                'Percent ' + get_plural(scale) + ' remaining').mean()['Avg. percent end suppliers reachable']
-            try:
-                val = x.index[np.max(np.nonzero((x < tol).values))]
-            except BaseException:
-                val = .29
-            t = t.append({'Scale': scale,
-                          'Attack': attack.description,
-                          'val': val},
-                         ignore_index=True)  # get largest post-threshold density
-    return t
-
-
-def er_threshold(G, rho=np.linspace(0, 1, 101), repeats=10):
-    for rr in range(repeats):
-        print(rr)
-        a = random_thinning_factory(G)
-        impute_industry(G)
-        failure_scales = ['firm', 'country', 'industry', 'country-industry']
-        thr = pd.DataFrame()
-        for failure_scale in failure_scales:
-            print(failure_scale)
-            d = pd.Series(index=rho, name='mean_degree')
-            for r in rho:
-                Gt = a(r, failure_scale=failure_scale)
-                d[r] = np.mean(Gt.degree())
-            thr = thr.append({'Scale': failure_scale,
-                              'val': d.index[np.nonzero(d.values > 1)[0][0]]},
-                             ignore_index=True)
-    thr = thr.groupby('Scale')['val'].median()
-    return thr
-
-
-def powerlaw_threshold_random(G):
-    gamma = powerlaw.Fit(np.bincount(G.degree())).alpha  # exponent
-    kmax = max(G.degree())
-    kmin = min(G.degree())
-
-    # https://en.wikipedia.org/wiki/Robustness_of_complex_networks#Critical_threshold_for_random_failures
-    kappa = (2 - gamma) / (3 - gamma) * kmax
-    fc = 1 - 1 / (kappa - 1)
-
-    return 1 - fc
-
-
-def powerlaw_threshold_targeted(G):
-    kmin = min(G.degree())
-    gamma = powerlaw.Fit(np.bincount(G.degree())).alpha  # exponent
-
-    def f(x):
-        return x**((2 - gamma) / (1 - gamma)) - 2 - (2 - gamma) / \
-            (3 - gamma) * kmin * (x**((3 - gamma) / (1 - gamma)) - 1)
-
-    from scipy.optimize import root_scalar
-    # This doesn't work, since alpha is about 1.4<2. So the network is
-    # exceedingly fragile against degree-based attacks (at least in terms of
-    # giant connected components)
-    return root_scalar(f, bracket=[0, 1])
