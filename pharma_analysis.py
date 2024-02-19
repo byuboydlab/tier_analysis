@@ -4,11 +4,14 @@ import igraph as ig
 import numpy as np
 import itertools
 import os
+import openpyxl
 
 breakdown_threshold = 0.80
 thinning_ratio = 0.005
 repeats_per_node = 20
-parallel = True
+parallel = False
+if parallel:
+        import ipyparallel
 parallel_job_count = 68
 parallel_node_limit = None  # for testing. set to None to run all nodes
 
@@ -23,7 +26,11 @@ edge_df.rename(
 G = sc.igraph_simple(edge_df)
 sc.get_node_tier_from_edge_tier(G)
 
-def get_node_breakdown_threshold(node, G, breakdown_threshold, thinning_ratio):
+def get_node_breakdown_threshold(node, G=G, breakdown_threshold=breakdown_threshold, thinning_ratio=thinning_ratio):
+
+    # if node is int, convert to vertex
+    if isinstance(node, int):
+        node = G.vs[node]
 
     # get terminal nodes for node
     terminal_nodes = sc.get_terminal_nodes(node, G)
@@ -76,15 +83,14 @@ if __name__ == '__main__':
             range(repeats_per_node)))
 
     if parallel:
-        import ipyparallel
         with ipyparallel.Cluster(n=parallel_job_count) as rc:
+            # set up cluster
             rc.wait_for_engines(parallel_job_count)
             lv = rc.load_balanced_view()
             lv.block = False
             rc[:].use_dill()
             with rc[:].sync_imports():
                 from pharma_analysis import get_node_breakdown_threshold, G, breakdown_threshold, thinning_ratio
-
             rc[:].push(dict(G=G, breakdown_threshold=breakdown_threshold,
                 thinning_ratio=thinning_ratio))
 

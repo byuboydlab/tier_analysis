@@ -28,21 +28,6 @@ has_metadata = False
 def get_demand_nodes(G):
     return list({x.target_vertex for x in G.es(Tier=1)})
 
-
-def igraph_simple(edge_df):
-
-    firm_list = pd.concat((edge_df['Source'], edge_df['Target'])).unique()
-    G = ig.Graph(directed=True)
-    G.add_vertices(firm_list)
-    G.add_edges(edge_df[['Source', 'Target']].itertuples(index=False))
-    G.es['Tier'] = edge_df.Tier.values
-    # use min to keep smaller tier value.
-    G.simplify(loops=False, combine_edges='min')
-    G.reversed = False
-
-    return G
-
-
 def get_node_tier_from_edge_tier(G):
 
     # iterate through the nodes and assign each node the minimum tier of the
@@ -52,7 +37,6 @@ def get_node_tier_from_edge_tier(G):
             node['Tier'] = min([e['Tier'] for e in node.out_edges()])
         else:
             node['Tier'] = 0
-
 
 def get_firm_df(df=None):
     if df is None:
