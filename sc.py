@@ -15,6 +15,7 @@ import seaborn as sns
 from functools import partial
 import matplotlib
 import tables # pytables needed to write to hdf
+import dill
 
 # User-set parameters
 
@@ -28,6 +29,21 @@ has_metadata = False
 def get_demand_nodes(G):
     return list({x.target_vertex for x in G.es(Tier=1)})
 
+
+def igraph_simple(edge_df):
+
+    firm_list = pd.concat((edge_df['Source'], edge_df['Target'])).unique()
+    G = ig.Graph(directed=True)
+    G.add_vertices(firm_list)
+    G.add_edges(edge_df[['Source', 'Target']].itertuples(index=False))
+    G.es['Tier'] = edge_df.Tier.values
+    # use min to keep smaller tier value.
+    G.simplify(loops=False, combine_edges='min')
+    G.reversed = False
+
+    return G
+
+
 def get_node_tier_from_edge_tier(G):
 
     # iterate through the nodes and assign each node the minimum tier of the
@@ -37,6 +53,7 @@ def get_node_tier_from_edge_tier(G):
             node['Tier'] = min([e['Tier'] for e in node.out_edges()])
         else:
             node['Tier'] = 0
+
 
 def get_firm_df(df=None):
     if df is None:
@@ -918,11 +935,22 @@ def compare_tiers(G,
                   tier_range=range(1, max_tiers + 1),
                   prefix='',
                   parallel='auto'):
-    G = deepcopy(G)
-    res = pd.DataFrame()
-    for tiers in reversed(tier_range):
-        print(tiers)
-        reduce_tiers(G, tiers)
+    """
+    This function is used to compare the effect of different tier counts on the
+    reachability of terminal suppliers. 
+
+    Returns:
+    res: a dataframe with the results of the reachability for each tier
+    """
+
+    G = deepcopy(G) # We don't want to modify the original graph
+    res = pd.DataFrame() # Final results
+    for tiers in reversed(tier_range): # iterate over the number of tiers included
+        print("Calling failure_reachability with", tiers, "tiers")
+
+        reduce_tiers(G, tiers) # Reduce the graph to the desired number of tiers
+
+        # Call failure_reachability with the reduced graph
         res_tier = failure_reachability(
             G,
             rho=rho,
@@ -932,11 +960,16 @@ def compare_tiers(G,
             targeted_factory=attack,
             failure_scale=failure_scale,
             parallel=parallel)
+
+        # add results to res
         res_tier['Tier count'] = tiers
-        res = res.append(res_tier, ignore_index=True)
-        with open(prefix + 'temp.pickle', mode='wb') as f:  # save in case there is a crash
+        res = pd.concat([res, res_tier], ignore_index=True)
+
+        # Save the results so far in case of a crash
+        with open(prefix + 'temp.pickle', mode='wb') as f:
             pickle.dump(res, f)
 
+    # Save the results
     fname = 'compare_tiers/' + failure_scale + '/' + \
         attack.description.replace(' ', '_').lower()
     os.makedirs(prefix + 'dat/' + os.path.dirname(fname), exist_ok=True)
@@ -944,26 +977,32 @@ def compare_tiers(G,
 
     if plot:
         compare_tiers_plot(res, rho, failure_scale, attack, save, prefix)
+
     return res
 
+def uniform_distance(v1, v2):
+    """ Returns the maximum absolute difference between two vectors. """
+    return np.max(np.abs(v1 - v2))
 
-def required_tiers(res, attack, scale):
-    # Assume res is already filtered to a specific attack and scale
-
-    res = res[(res['Failure scale'] == scale) & (
-        res['Attack type'] == attack.description)]
-    rho = "Percent " + get_plural(scale) + " remaining"
-
-    means = []
-    for tier_count in range(1, max_tiers + 1):
-        means.append(res[res['Tier count'] == tier_count].groupby(
-            rho)['Avg. percent end suppliers reachable'].mean())
-
-    maxes = np.zeros(max_tiers)
-    for tier_count in range(1, max_tiers + 1):
-        maxes[tier_count -
-              1] = np.max(np.abs(means[tier_count - 1] - means[-1]))
-
-    tol = .05
-    return np.nonzero(maxes < tol)[0][0] + 1
-
+def between_tier_distances(res, rho = "Percent firms remaining"):
+    """
+    Computes the uniform distance between the mean of each tier and the mean of the final tier.
+    
+    Parameters:
+    - res: DataFrame containing the results.
+    - rho: The column name for 'Percent <scale> remaining'.
+    
+    Returns:
+    - DataFrame with two columns: 'Tier count' and 'Distance'.
+    """
+    means = {tier_count: res[res['Tier count'] == tier_count].groupby(rho)['Avg. percent end suppliers reachable'].mean()
+             for tier_count in res['Tier count'].unique()}
+    
+    # Find the distance to the last tier for each tier
+    distances = {tier_count: uniform_distance(means[tier_count], means[max(means.keys())])
+                 for tier_count in means.keys()}
+    
+    # Convert distances dictionary to a DataFrame
+    distances_df = pd.DataFrame(list(distances.items()), columns=['Tier count', 'Distance'])
+    
+    return distances_df
