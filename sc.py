@@ -687,8 +687,6 @@ def failure_reachability_single(
         callbacks=callbacks,
         targeted=False):
 
-    write_test_file()
-
     if not med_suppliers:
         med_suppliers = get_demand_nodes(G)
     if not ts:
@@ -710,22 +708,6 @@ def failure_reachability_single(
     res['Attack type'] = targeted.description
     return res
 
-def write_test_file():
-    # save a file whose name contains the time and process id
-    import time
-    import os
-    import sys
-    import pickle
-    pickle.dump(
-            [1,2,3],
-            open(
-                'G_{}_{}.pkl'.format(
-                    time.strftime(
-                        "%Y%m%d-%H%M%S"),
-                    os.getpid()),
-                'wb'))
-
-
 def failure_reachability_sweep(G,
                                rho=np.linspace(.3,
                                                1,
@@ -743,7 +725,7 @@ def failure_reachability_sweep(G,
 
     if not med_suppliers:
         med_suppliers = [i.index for i in get_demand_nodes(G)]
-    if not ts:
+    if ts == False:
         ts = [set(get_terminal_nodes(i, G)) for i in med_suppliers]
 
     avgs = []
@@ -808,7 +790,15 @@ def failure_reachability(G,
                          prefix='',
                          med_suppliers=None):
 
-    if parallel == 'auto' or parallel:
+    # Check that G is an igraph
+    if not isinstance(G, ig.Graph):
+        raise ValueError('G must be an igraph.Graph')
+
+    if parallel == True:
+        print("parallel==True is being interpreted as 'repeat'")
+        parallel = 'repeat'
+
+    if parallel == 'auto':
         parallel = 'repeat' if repeats > 1 else 'rho'
 
     if med_suppliers is None:
@@ -827,25 +817,41 @@ def failure_reachability(G,
             ] * repeats  # Beware here that the copy here is very shallow
 
     if parallel == 'repeat':
-        print('doing parallel map now')
+        print('Doing parallel map now.')
         dv = get_dv()
         with dv.sync_imports():
             import sc
         dv['G'] = G
         dv['med_suppliers'] = med_suppliers
         dv['t'] = t
+        dv['rho'] = rho
         dv['failure_scale'] = failure_scale
         dv['callbacks'] = callbacks
         dv['targeted_factory'] = targeted_factory
 
-        #def wrapper(x):
-            #return sc.failure_reachability_sweep(G, med_suppliers, t, rho, failure_scale, callbacks, targeted_factory)
+        # Define wrapper_function on the engines
+#        dv.execute("""
+#        def wrapper_function(x):
+#            global G, med_suppliers, t, rho, failure_scale, callbacks, targeted_factory
+#            return sc.failure_reachability_sweep(G=G, 
+#                    rho=rho, 
+#                    med_suppliers = med_suppliers, 
+#                    ts = t,
+#                    failure_scale = failure_scale, 
+#                    callbacks = callbacks, 
+#                    targeted_factory = targeted_factory)
+#        """)
+        def wrapper_function(x):
+            return failure_reachability_sweep(G=G, 
+                    rho=rho, 
+                    med_suppliers = med_suppliers, 
+                    ts = t,
+                    failure_scale = failure_scale, 
+                    callbacks = callbacks, 
+                    targeted_factory = targeted_factory)
+        
+        avgs = dv.map(wrapper_function, range(repeats))
 
-        #avgs = dv.map(wrapper, range(repeats))
-        avgs = dv.map(lambda x: sc.failure_reachability(G, med_suppliers, t, rho, failure_scale, callbacks, targeted_factory), range(repeats))
-#
-#        avgs = dv.map(failure_reachability_sweep,
-#                    *list(zip(*args)))
     elif parallel == 'rho':
         avgs = [failure_reachability_sweep(*args[0], parallel=True)]
     else:
