@@ -31,7 +31,10 @@ def get_df(extra_tiers=False):
 
     files = list(os.scandir(os.getcwd()))
     files = [x for x in files if x.is_file() and x.name == source_file_name]
-    file_name = files[0]
+    if len(files) == 0:
+        raise Exception('No files match the source file name given!')
+    else:
+        file_name = files[0]
 
     df = pd.read_excel(file_name, sheet_name="Sheet1", engine='openpyxl')
     df = df.drop_duplicates(ignore_index=True)
