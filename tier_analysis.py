@@ -3,6 +3,7 @@ import math
 import pickle
 import dill
 import itertools
+import random
 import numpy as np
 import pandas as pd
 import igraph as ig
@@ -411,7 +412,7 @@ def failure_reachability(G,
         print('Doing parallel map now.')
         dv = get_dv()
         with dv.sync_imports():
-            import cascading_failure
+            import tier_analysis
         dv['G'] = G
         dv['med_suppliers'] = med_suppliers
         dv['t'] = t
@@ -698,14 +699,12 @@ if __name__ == '__main__':
                 range(repeats_per_node)))
 
         if use_parallel:
-            with ipyparallel.Cluster(n=parallel_job_count) as rc:
+            with ipp.Cluster(n=parallel_job_count) as rc:
                 # set up cluster
                 rc.wait_for_engines(parallel_job_count)
                 lv = rc.load_balanced_view()
                 lv.block = False
                 rc[:].use_dill()
-                with rc[:].sync_imports():
-                    from pharma_analysis import get_node_breakdown_threshold, G, breakdown_threshold, thinning_ratio
                 rc[:].push(dict(G=G, breakdown_threshold=breakdown_threshold,
                     thinning_ratio=thinning_ratio))
 
