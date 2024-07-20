@@ -162,7 +162,10 @@ def get_plural(x):
         raise NotImplementedError
 
 
-n_cpus = len(os.sched_getaffinity(0))
+if os.name == 'posix':
+    n_cpus = len(os.sched_getaffinity(0))
+elif os.name == 'nt':
+    n_cpus = os.cpu_count()
 cluster = ipp.Cluster(n = n_cpus - 2)
 cluster_is_started = False
 
