@@ -1,0 +1,16 @@
+name: cascading_failure
+channels:
+  - conda-forge
+dependencies:
+  - dill
+  - numpy
+  - pandas
+  - python-igraph
+  - matplotlib
+  - seaborn
+  - ipyparallel
+  - openpyxl
+  - ca-certificates
+  - certifi
+  - openssl
+prefix: C:\Users\Isaac\miniforge3\envs\cascading_failure
