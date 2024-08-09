@@ -1,11 +1,11 @@
-name: cascading_failure
+name: sc_robustness
 channels:
   - conda-forge
 dependencies:
   - dill
   - numpy
   - pandas
-  - python-igraph
+  - python-igraph=0.11.6
   - matplotlib
   - seaborn
   - ipyparallel
@@ -13,4 +13,4 @@ dependencies:
   - ca-certificates
   - certifi
   - openssl
-prefix: C:\Users\Isaac\miniforge3\envs\cascading_failure
+prefix: C:\Users\Isaac\miniforge3\envs\sc_robustness
