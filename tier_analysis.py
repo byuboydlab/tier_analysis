@@ -17,7 +17,7 @@ from copy import deepcopy
 # User-set parameters
 data_file_name = 'med.xlsx'
 should_compare_tiers = True
-should_get_thresholds = False # DEBUG
+should_get_thresholds = False
 use_parallel = False
 has_metadata = False
 max_tiers = 16
