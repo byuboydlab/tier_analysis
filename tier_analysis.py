@@ -30,11 +30,7 @@ parallel_job_count = 6
 def get_df(extra_tiers=False):
     global file_name
 
-    # DEBUG
-    files = list(os.scandir('..\\Cascading Failure'))
-    # files = list(os.scandir())
-
-
+    files = list(os.scandir())
     files = [x for x in files if x.is_file() and x.name == data_file_name]
     if len(files) == 0:
         raise Exception('No files match the data file name given!')
@@ -687,6 +683,10 @@ def get_node_breakdown_threshold(node, G, breakdown_threshold=breakdown_threshol
 
 
 if __name__ == '__main__':
+    # DEBUG
+    # Temporarily point all input and output to a different folder for debugging purposes
+    os.chdir('..\\Cascading Failure')
+
     launch_time = datetime.now().strftime('%m-%d-%Y_%H-%M-%S')
 
     df = get_df()
