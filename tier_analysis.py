@@ -14,9 +14,9 @@ from copy import deepcopy
 
 
 # User-set parameters
-source_file_name = 'pharma.xlsx'
+data_file_name = 'med.xlsx'
 should_compare_tiers = True
-should_get_thresholds = True
+should_get_thresholds = False # DEBUG
 use_parallel = False
 has_metadata = False
 max_tiers = 16
@@ -29,10 +29,14 @@ parallel_job_count = 6
 def get_df(extra_tiers=False):
     global file_name
 
-    files = list(os.scandir(os.getcwd()))
-    files = [x for x in files if x.is_file() and x.name == source_file_name]
+    # DEBUG
+    files = list(os.scandir('..\\Cascading Failure'))
+    # files = list(os.scandir())
+
+
+    files = [x for x in files if x.is_file() and x.name == data_file_name]
     if len(files) == 0:
-        raise Exception('No files match the source file name given!')
+        raise Exception('No files match the data file name given!')
     else:
         file_name = files[0]
 
@@ -132,21 +136,29 @@ def get_terminal_nodes(node, G):
     return terminal_nodes
 
 
-def get_u(i_thick, G_thin, med_suppliers_thin=None, direction='IN'):
+def get_upstream(i_thick, G_thick, G_thin, demand_nodes_thin=None, direction='IN'):
     if isinstance(i_thick, ig.Vertex):
         i_thick = i_thick.index
 
     try:
-        i_thin = med_suppliers_thin[i_thick] if med_suppliers_thin else G_thin.vs.find(
-            name=i_thick).index
-    except BaseException:  # the node we want has been deleted
+        # i_thin = demand_nodes_thin[i_thick] if demand_nodes_thin else G_thin.vs.find(name=i_thick).index
+        if demand_nodes_thin:
+            i_thin = demand_nodes_thin[i_thick]
+        else:
+            i_thin = G_thin.vs.find(name=G_thick.vs[i_thick]['name']).index
+    except ValueError:  # the node we want has been deleted
         return set()
 
-    u = G_thin.bfs(i_thin, mode=direction)
-    u = u[0][:u[1][-1]]  # remove trailing zeros
+    upstream = G_thin.bfs(i_thin, mode=direction)
+    upstream = upstream[0][:upstream[1][-1]]  # remove trailing zeros
 
     ids = G_thin.vs['name']
-    return {ids[i] for i in u}
+    upstream_nodes = {ids[i] for i in upstream}
+
+    # Add the original node to the results
+    upstream_nodes = upstream_nodes.union({ids[i_thin]})
+
+    return upstream_nodes
 
 
 def get_plural(x):
@@ -185,7 +197,7 @@ def some_terminal_suppliers_reachable(i, G, G_thin, t=None, u=None):
     if t is None:
         t = get_terminal_nodes(i, G)
     if u is None:
-        u = get_u(i, G_thin)
+        u = get_upstream(i, G, G_thin)
 
     if u & t:  # set intersection
         return True
@@ -200,7 +212,7 @@ def percent_terminal_suppliers_reachable(i, G, G_thin, t=None, u=None):
     if t is None:
         t = get_terminal_nodes(i, G)
     if u is None:
-        u = get_u(i, G_thin)
+        u = get_upstream(i, G, G_thin)
 
     return len(set(t) & u) / len(t)
 
@@ -284,28 +296,28 @@ def failure_plot(
 def failure_reachability_single(
         r,
         G,
-        med_suppliers=False,
+        demand_nodes=False,
         ts=False,
         failure_scale='firm',
         callbacks=callbacks,
         targeted=False):
 
-    if not med_suppliers:
-        med_suppliers = get_demand_nodes(G)
+    if not demand_nodes:
+        demand_nodes = get_demand_nodes(G)
     if not ts:
-        ts = [set(get_terminal_nodes(i, G)) for i in med_suppliers]
+        ts = [set(get_terminal_nodes(i, G)) for i in demand_nodes]
     if not targeted:
         targeted = random_thinning_factory(G)
 
     G_thin = targeted(r, failure_scale=failure_scale)
-    med_suppliers_thin = {
-        i_thin['name']: i_thin.index for i_thin in G_thin.vs if i_thin['name'] in med_suppliers}
+    demand_nodes_thin = {
+        i_thin['name']: i_thin.index for i_thin in G_thin.vs if i_thin['name'] in demand_nodes}
 
     res = dict()
-    us = [get_u(i, G_thin, med_suppliers_thin) for i in med_suppliers]
+    us = [get_upstream(i, G, G_thin, demand_nodes_thin) for i in demand_nodes]
     for cb in callbacks:
-        sample = [cb(med_suppliers, G, G_thin, t, u)
-                  for i, t, u in zip(med_suppliers, ts, us)]
+        sample = [cb(demand_nodes, G, G_thin, t, u)
+                  for i, t, u in zip(demand_nodes, ts, us)]
         res[cb.description] = np.mean(sample)
     res['Failure scale'] = failure_scale
     res['Attack type'] = targeted.description
@@ -316,28 +328,28 @@ def failure_reachability_sweep(G,
                                rho=np.linspace(.3,
                                                1,
                                                71),
-                               med_suppliers=False,
+                               demand_nodes=False,
                                ts=False,
                                failure_scale='firm',
                                callbacks=callbacks,
                                targeted_factory=random_thinning_factory,
                                parallel=False):
-    global failure_reachability_sweep
+    # global failure_reachability_sweep
 
     if failure_scale == 'industry':
         G = deepcopy(G)
         impute_industry(G)
 
-    if not med_suppliers:
-        med_suppliers = [i.index for i in get_demand_nodes(G)]
+    if not demand_nodes:
+        demand_nodes = [i.index for i in get_demand_nodes(G)]
     if ts == False:
-        ts = [set(get_terminal_nodes(i, G)) for i in med_suppliers]
+        ts = [set(get_terminal_nodes(i, G)) for i in demand_nodes]
 
     avgs = []
     if parallel:
         dv = get_dv()
         dv['G'] = G
-        dv['med_suppliers'] = med_suppliers
+        dv['demand_nodes'] = demand_nodes
         dv['ts'] = ts
         dv['failure_scale'] = failure_scale
         dv['callbacks'] = callbacks
@@ -348,7 +360,7 @@ def failure_reachability_sweep(G,
         avgs = dv.map(failure_reachability_single,
                   rho,
                   *list(zip(*[[G,
-                               med_suppliers,
+                               demand_nodes,
                                ts,
                                failure_scale,
                                callbacks,
@@ -363,7 +375,7 @@ def failure_reachability_sweep(G,
                 failure_reachability_single(
                     r,
                     G,
-                    med_suppliers,
+                    demand_nodes,
                     ts,
                     failure_scale=failure_scale,
                     callbacks=callbacks,
@@ -390,9 +402,9 @@ def failure_reachability(G,
                          callbacks=callbacks,
                          G_has_no_software_flag=None,
                          prefix='',
-                         med_suppliers=None):
+                         demand_nodes=None):
 
-    global source_file_name
+    global data_file_name
 
     # Check that G is an igraph
     if not isinstance(G, ig.Graph):
@@ -405,12 +417,12 @@ def failure_reachability(G,
     if parallel == 'auto':
         parallel = 'repeat' if repeats > 1 else 'rho'
 
-    if med_suppliers is None:
-        med_suppliers = [i.index for i in get_demand_nodes(G)]
+    if demand_nodes is None:
+        demand_nodes = [i.index for i in get_demand_nodes(G)]
 
-    t = [get_terminal_nodes(i, G) for i in med_suppliers]
+    t = [get_terminal_nodes(i, G) for i in demand_nodes]
 
-    args = [[G, rho, med_suppliers, t, failure_scale, callbacks, targeted_factory]
+    args = [[G, rho, demand_nodes, t, failure_scale, callbacks, targeted_factory]
             ] * repeats  # Beware here that the copy here is very shallow
 
 
@@ -420,7 +432,7 @@ def failure_reachability(G,
         with dv.sync_imports():
             import tier_analysis
         dv['G'] = G
-        dv['med_suppliers'] = med_suppliers
+        dv['demand_nodes'] = demand_nodes
         dv['t'] = t
         dv['rho'] = rho
         dv['failure_scale'] = failure_scale
@@ -430,10 +442,10 @@ def failure_reachability(G,
         # Define wrapper_function on the engines
 #        dv.execute("""
 #        def wrapper_function(x):
-#            global G, med_suppliers, t, rho, failure_scale, callbacks, targeted_factory
+#            global G, demand_nodes, t, rho, failure_scale, callbacks, targeted_factory
 #            return cascading_failure.failure_reachability_sweep(G=G,
 #                    rho=rho,
-#                    med_suppliers = med_suppliers,
+#                    demand_nodes = demand_nodes,
 #                    ts = t,
 #                    failure_scale = failure_scale,
 #                    callbacks = callbacks,
@@ -442,7 +454,7 @@ def failure_reachability(G,
         def wrapper_function(x):
             return failure_reachability_sweep(G=G,
                     rho=rho,
-                    med_suppliers = med_suppliers,
+                    demand_nodes = demand_nodes,
                     ts = t,
                     failure_scale = failure_scale,
                     callbacks = callbacks,
@@ -466,7 +478,7 @@ def failure_reachability(G,
             + '_range_' + str(rho[0]) + '_' + str(rho[-1])\
             + '_repeats_' + str(repeats)\
             + (('software_excluded' if G_has_no_software_flag else 'software_included') if G_has_no_software_flag is not None else '')\
-            + source_file_name.replace('.xlsx', '')
+            + data_file_name.replace('.xlsx', '')
         failure_plot(avgs[avgs.columns[:-2]],
                      plot_title=plot_title,
                      save_only=save_only,
@@ -499,7 +511,7 @@ def compare_tiers_plot(res,
                        attack=random_thinning_factory,
                        save=True):
 
-    global source_file_name
+    global data_file_name
 
     rho = "Percent " + get_plural(failure_scale) + " remaining"
     ax = sns.lineplot(
@@ -515,7 +527,7 @@ def compare_tiers_plot(res,
             + '_' + attack.description.replace(' ', '_').lower()\
             + '_range_' + str(rho[0]) + '_' + str(rho[-1])\
             + '_tiers_' + str(res['Tier count'].min()) + '_' + str(res['Tier count'].max())\
-            + '_' + source_file_name.replace('.xlsx', '')
+            + '_' + data_file_name.replace('.xlsx', '')
         plt.savefig(fname + '.svg')
 
 
@@ -536,7 +548,7 @@ def compare_tiers(G,
     res: a dataframe with the results of the reachability for each tier
     """
 
-    global source_file_name
+    global data_file_name
 
     G = deepcopy(G) # We don't want to modify the original graph
     res = pd.DataFrame() # Final results
@@ -563,7 +575,7 @@ def compare_tiers(G,
     # Save the results
     fname = 'compare_tiers_' + failure_scale + '_' + \
         attack.description.replace(' ', '_').lower()\
-        + '_' + source_file_name.replace('.xlsx', '')
+        + '_' + data_file_name.replace('.xlsx', '')
     res.to_excel(fname + '.xlsx')
 
     if plot:
@@ -587,7 +599,7 @@ def between_tier_distances(res, rho = "Percent firms remaining", attack=random_t
     Returns:
     - DataFrame with two columns: 'Tier count' and 'Distance'.
     """
-    global source_file_name
+    global data_file_name
 
     means = {tier_count: res[res['Tier count'] == tier_count].groupby(rho)['Avg. percent end suppliers reachable'].mean()
              for tier_count in res['Tier count'].unique()}
@@ -600,7 +612,7 @@ def between_tier_distances(res, rho = "Percent firms remaining", attack=random_t
     distances_df = pd.DataFrame(list(distances.items()), columns=['Tier count', 'Distance'])
 
     fname = 'between_tier_distances_' + failure_scale + '_' + \
-        attack.description.replace(' ', '_').lower() + '_' + source_file_name.replace('.xlsx', '') + '.xlsx'
+        attack.description.replace(' ', '_').lower() + '_' + data_file_name.replace('.xlsx', '') + '.xlsx'
     distances_df.to_excel(fname)
 
     return distances_df
@@ -678,7 +690,6 @@ if __name__ == '__main__':
     G = igraph_simple(df)
     get_node_tier_from_edge_tier(G)
 
-
     if should_compare_tiers:
         res = compare_tiers(G, parallel = use_parallel)
         dists = between_tier_distances(res)
@@ -741,7 +752,7 @@ if __name__ == '__main__':
                 itercount += 1
 
         fname = 'breakdown_thresholds_{0:.2f}_{1:.3f}'.format(breakdown_threshold, thinning_ratio)
-        fname = fname + '_' + source_file_name.replace('.xlsx', '') + '.xlsx'
+        fname = fname + '_' + data_file_name.replace('.xlsx', '') + '.xlsx'
 
         thresholds.to_excel(fname)
 
