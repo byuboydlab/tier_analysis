@@ -687,7 +687,7 @@ if __name__ == '__main__':
     # Temporarily point all input and output to a different folder for debugging purposes
     os.chdir('..\\Cascading Failure')
 
-    launch_time = datetime.now().strftime('%m-%d-%Y_%H-%M-%S')
+    launch_time = datetime.datetime.now().strftime('%m-%d-%Y_%H-%M-%S')
 
     df = get_df()
     G = igraph_simple(df)
