@@ -1,5 +1,6 @@
 import os
 import math
+import datetime
 import pickle
 import dill
 import itertools
@@ -404,7 +405,7 @@ def failure_reachability(G,
                          prefix='',
                          demand_nodes=None):
 
-    global data_file_name
+    global data_file_name, launch_time
 
     # Check that G is an igraph
     if not isinstance(G, ig.Graph):
@@ -478,7 +479,7 @@ def failure_reachability(G,
             + '_range_' + str(rho[0]) + '_' + str(rho[-1])\
             + '_repeats_' + str(repeats)\
             + (('software_excluded' if G_has_no_software_flag else 'software_included') if G_has_no_software_flag is not None else '')\
-            + data_file_name.replace('.xlsx', '')
+            + data_file_name.replace('.xlsx', '') + '_' + launch_time
         failure_plot(avgs[avgs.columns[:-2]],
                      plot_title=plot_title,
                      save_only=save_only,
@@ -511,7 +512,7 @@ def compare_tiers_plot(res,
                        attack=random_thinning_factory,
                        save=True):
 
-    global data_file_name
+    global data_file_name, launch_time
 
     rho = "Percent " + get_plural(failure_scale) + " remaining"
     ax = sns.lineplot(
@@ -527,7 +528,7 @@ def compare_tiers_plot(res,
             + '_' + attack.description.replace(' ', '_').lower()\
             + '_range_' + str(rho[0]) + '_' + str(rho[-1])\
             + '_tiers_' + str(res['Tier count'].min()) + '_' + str(res['Tier count'].max())\
-            + '_' + data_file_name.replace('.xlsx', '')
+            + '_' + data_file_name.replace('.xlsx', '') + '_' + launch_time
         plt.savefig(fname + '.svg')
 
 
@@ -548,7 +549,7 @@ def compare_tiers(G,
     res: a dataframe with the results of the reachability for each tier
     """
 
-    global data_file_name
+    global data_file_name, launch_time
 
     G = deepcopy(G) # We don't want to modify the original graph
     res = pd.DataFrame() # Final results
@@ -575,7 +576,7 @@ def compare_tiers(G,
     # Save the results
     fname = 'compare_tiers_' + failure_scale + '_' + \
         attack.description.replace(' ', '_').lower()\
-        + '_' + data_file_name.replace('.xlsx', '')
+        + '_' + data_file_name.replace('.xlsx', '') + '_' + launch_time
     res.to_excel(fname + '.xlsx')
 
     if plot:
@@ -599,7 +600,7 @@ def between_tier_distances(res, rho = "Percent firms remaining", attack=random_t
     Returns:
     - DataFrame with two columns: 'Tier count' and 'Distance'.
     """
-    global data_file_name
+    global data_file_name, launch_time
 
     means = {tier_count: res[res['Tier count'] == tier_count].groupby(rho)['Avg. percent end suppliers reachable'].mean()
              for tier_count in res['Tier count'].unique()}
@@ -612,7 +613,7 @@ def between_tier_distances(res, rho = "Percent firms remaining", attack=random_t
     distances_df = pd.DataFrame(list(distances.items()), columns=['Tier count', 'Distance'])
 
     fname = 'between_tier_distances_' + failure_scale + '_' + \
-        attack.description.replace(' ', '_').lower() + '_' + data_file_name.replace('.xlsx', '') + '.xlsx'
+        attack.description.replace(' ', '_').lower() + '_' + data_file_name.replace('.xlsx', '') + '_' + launch_time + '.xlsx'
     distances_df.to_excel(fname)
 
     return distances_df
@@ -686,6 +687,8 @@ def get_node_breakdown_threshold(node, G, breakdown_threshold=breakdown_threshol
 
 
 if __name__ == '__main__':
+    launch_time = datetime.now().strftime('%m-%d-%Y_%H-%M-%S')
+
     df = get_df()
     G = igraph_simple(df)
     get_node_tier_from_edge_tier(G)
@@ -752,7 +755,7 @@ if __name__ == '__main__':
                 itercount += 1
 
         fname = 'breakdown_thresholds_{0:.2f}_{1:.3f}'.format(breakdown_threshold, thinning_ratio)
-        fname = fname + '_' + data_file_name.replace('.xlsx', '') + '.xlsx'
+        fname = fname + '_' + data_file_name.replace('.xlsx', '') + '_' + launch_time + '.xlsx'
 
         thresholds.to_excel(fname)
 
