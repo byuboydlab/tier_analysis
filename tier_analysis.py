@@ -367,7 +367,7 @@ def failure_reachability_sweep(G,
 
         targeted = targeted_factory(G)
 
-        for r in tqdm.tqdm(rho, desc='Reachability sweep'):
+        for r in tqdm.tqdm(rho, desc='Reachability sweep', leave=False):
             print(r)
             avgs.append(
                 failure_reachability_single(
@@ -464,7 +464,7 @@ def failure_reachability(G,
     elif parallel == 'rho':
         avgs = [failure_reachability_sweep(*args[0], parallel=True)]
     else:
-        avgs = [failure_reachability_sweep(*args[0]) for _ in tqdm.tqdm(range(repeats), desc='Reachability overall')]
+        avgs = [failure_reachability_sweep(*args[0]) for _ in tqdm.tqdm(range(repeats), desc='Reachability overall', leave=False)]
     avgs = pd.concat(avgs, ignore_index=True)
 
     if plot:
