@@ -616,34 +616,6 @@ def between_tier_distances(res, rho = "Percent firms remaining", attack=random_t
     return distances_df
 
 
-def get_reachable_nodes(node, G):
-    if isinstance(node, ig.Vertex):
-        node = node.index
-
-    u = G.bfs(node, mode='IN')
-    u = u[0][:u[1][-1]]  # remove trailing zeros
-
-    # return the ids of the nodes
-    return {G.vs['name'][i] for i in u}
-
-
-def get_terminal_nodes(node, G):
-    if isinstance(node, ig.Vertex):
-        node = node.index
-
-    reachable_nodes = get_reachable_nodes(node, G)
-    reachable_graph = G.induced_subgraph(reachable_nodes)
-
-    sccs = reachable_graph.connected_components()
-
-    terminal_components = sccs.cluster_graph().vs(_indegree_eq=0)
-    sccs = list(sccs)
-    terminal_nodes = [sccs[node.index] for node in terminal_components]
-    terminal_nodes = {reachable_graph.vs[node]['name']
-                      for node in itertools.chain(*terminal_nodes)}
-    return terminal_nodes
-
-
 def get_node_breakdown_threshold(node, G, breakdown_threshold=breakdown_threshold, thinning_ratio=thinning_ratio):
 
     # if node is int, convert to vertex
