@@ -1,6 +1,9 @@
 import tier_analysis as ta
 import igraph as ig
 
+
+# Utilties
+
 def make_depth_1_tree():
     G = ig.Graph(directed=True)
     G.add_vertex()
@@ -38,6 +41,23 @@ def make_depth_2_tree():
     return G
 
 
+def make_pole_and_twig():
+    # make a directed line graph with 1000 nodes
+    G = ig.Graph(directed=True)
+    G.add_vertices(1000)
+    G.add_edges([(i + 1, i) for i in range(999)])
+    G.vs['name'] = list(range(G.vcount()))  # helps when passing to subgraphs
+    # assign each edge to a tier based on distance from the root
+    G.es['Tier'] = [i for i in range(999)]
+    # add an additional node to give the leaf indegree 2
+    G.add_vertex()
+    G.add_edge(1000, 0)
+    G.vs[1000]['name'] = 1000
+    return G
+
+
+# Tests
+
 def test_get_reachable_nodes():
     depth_1_tree = make_depth_1_tree()
     for v in depth_1_tree.vs:
@@ -58,6 +78,22 @@ def test_get_reachable_nodes():
             assert len(ta.get_reachable_nodes(v, depth_2_tree)) == 1
         else:
             raise Exception("Something is wrong with the tree!")
+        
+
+def test_get_terminal_nodes():
+    pass
+
+
+def test_get_upstream():
+    pass
+
+
+def test_some_terminal_suppliers_reachable():
+    pass
+
+
+def percent_terminal_suppliers_reachable():
+    pass
 
 
 if __name__ == "__main__":
