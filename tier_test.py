@@ -90,7 +90,32 @@ def test_get_reachable_nodes():
         
 
 def test_get_terminal_nodes():
-    pass
+    depth_1_tree = make_depth_1_tree()
+    for v in depth_1_tree.vs:
+        if v["Tier"] == 0:
+            assert len(ta.get_terminal_nodes(v, depth_1_tree)) == 1000
+        elif v["Tier"] == 1:
+            assert len(ta.get_terminal_nodes(v, depth_1_tree)) == 1
+        else:
+            raise Exception("Something is wrong with the tree!")
+        
+    depth_2_tree = make_depth_2_tree()
+    for v in depth_2_tree.vs:
+        if v["Tier"] == 0:
+            assert len(ta.get_terminal_nodes(v, depth_2_tree)) == 10000
+        elif v["Tier"] == 1:
+            assert len(ta.get_terminal_nodes(v, depth_2_tree)) == 10
+        elif v["Tier"] == 2:
+            assert len(ta.get_terminal_nodes(v, depth_2_tree)) == 1
+        else:
+            raise Exception("Something is wrong with the tree!")
+        
+    pole_and_twig = make_pole_and_twig()
+    for v in pole_and_twig.vs:
+        if v.index == 0:
+            assert len(ta.get_terminal_nodes(v, pole_and_twig)) == 2
+        else:
+            assert len(ta.get_terminal_nodes(v, pole_and_twig)) == 1
 
 
 def test_get_upstream():
@@ -107,3 +132,4 @@ def percent_terminal_suppliers_reachable():
 
 if __name__ == "__main__":
     test_get_reachable_nodes()
+    test_get_terminal_nodes()
