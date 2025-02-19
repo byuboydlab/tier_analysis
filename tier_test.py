@@ -126,7 +126,7 @@ def test_some_terminal_suppliers_reachable():
     pass
 
 
-def percent_terminal_suppliers_reachable():
+def test_percent_terminal_suppliers_reachable():
     pass
 
 
