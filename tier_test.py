@@ -79,6 +79,15 @@ def test_get_reachable_nodes():
         else:
             raise Exception("Something is wrong with the tree!")
         
+    pole_and_twig = make_pole_and_twig()
+    for v in pole_and_twig.vs:
+        if v.index == 0:
+            assert len(ta.get_reachable_nodes(v, pole_and_twig)) == len(pole_and_twig.vs)
+        elif v.index == 1000:
+            assert len(ta.get_reachable_nodes(v, pole_and_twig)) == 1
+        else:
+            assert len(ta.get_reachable_nodes(v, pole_and_twig)) == len(pole_and_twig.vs) - v.index - 1
+        
 
 def test_get_terminal_nodes():
     pass
