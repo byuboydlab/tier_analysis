@@ -172,7 +172,27 @@ def test_get_upstream():
 
 
 def test_some_terminal_suppliers_reachable():
-    pass
+    depth_1_tree = make_depth_1_tree()
+    assert ta.some_terminal_suppliers_reachable(depth_1_tree.vs[0], depth_1_tree, depth_1_tree)
+
+    depth_1_tree_thin = copy.deepcopy(depth_1_tree)
+
+    depth_1_tree.delete_vertices(1000)
+    assert ta.some_terminal_suppliers_reachable(depth_1_tree.vs[0], depth_1_tree, depth_1_tree_thin)
+
+    depth_1_tree_thin.delete_vertices(0)
+    assert not ta.some_terminal_suppliers_reachable(depth_1_tree.vs[0], depth_1_tree, depth_1_tree_thin)
+
+    pole_and_twig = make_pole_and_twig()
+    assert ta.some_terminal_suppliers_reachable(pole_and_twig.vs[0], pole_and_twig, pole_and_twig)
+
+    pole_and_twig_thin = copy.deepcopy(pole_and_twig)
+
+    pole_and_twig_thin.delete_vertices(1000)
+    assert ta.some_terminal_suppliers_reachable(pole_and_twig.vs[0], pole_and_twig, pole_and_twig_thin)
+
+    pole_and_twig_thin.delete_vertices(1)
+    assert not ta.some_terminal_suppliers_reachable(pole_and_twig.vs[0], pole_and_twig, pole_and_twig_thin)    
 
 
 def test_percent_terminal_suppliers_reachable():
@@ -183,3 +203,4 @@ if __name__ == "__main__":
     test_get_reachable_nodes()
     test_get_terminal_nodes()
     test_get_upstream()
+    test_some_terminal_suppliers_reachable()
