@@ -1,5 +1,6 @@
 import tier_analysis as ta
 import igraph as ig
+import copy
 
 
 # Utilties
@@ -119,7 +120,55 @@ def test_get_terminal_nodes():
 
 
 def test_get_upstream():
-    pass
+    depth_1_tree = make_depth_1_tree()
+    assert len(ta.get_upstream(depth_1_tree.vs[0], depth_1_tree, depth_1_tree)) == 1001
+
+    depth_1_tree_thin = copy.deepcopy(depth_1_tree)
+
+    for i in range(1,501):
+        depth_1_tree_thin.delete_vertices(depth_1_tree_thin.vs.find(name=i).index)
+        assert len(ta.get_upstream(depth_1_tree.vs[0], depth_1_tree, depth_1_tree_thin)) == 1001 - i
+
+    depth_1_tree_thin.delete_vertices(0)
+    assert len(ta.get_upstream(depth_1_tree.vs[0], depth_1_tree, depth_1_tree_thin)) == 0
+
+    depth_2_tree = make_depth_2_tree()
+    assert len(ta.get_upstream(depth_2_tree.vs[0], depth_2_tree, depth_2_tree)) == 11001
+    assert len(ta.get_upstream(depth_2_tree.vs[1000], depth_2_tree, depth_2_tree)) == 11
+
+    depth_2_tree_thin = copy.deepcopy(depth_2_tree)
+    depth_2_tree_thin.delete_vertices(depth_2_tree_thin.vs.find(name=11000).index)
+    assert len(ta.get_upstream(depth_2_tree.vs[0], depth_2_tree, depth_2_tree_thin)) == 11000
+    assert len(ta.get_upstream(depth_2_tree.vs[1000], depth_2_tree, depth_2_tree_thin)) == 10
+
+    for i in range(10999, 10990):
+        print(i)
+        depth_2_tree_thin.delete_vertices(depth_2_tree_thin.vs.find(name=i).index)
+        assert len(ta.get_upstream(depth_2_tree.vs[0], depth_2_tree, depth_2_tree_thin)) == 11000 - (i - 10990)
+        assert len(ta.get_upstream(depth_2_tree.vs[1000], depth_2_tree, depth_2_tree_thin)) == 10 - (i - 10990)
+
+    depth_2_tree_thin.delete_vertices(1000)
+    assert len(ta.get_upstream(depth_2_tree.vs[0], depth_2_tree, depth_2_tree_thin)) == 10990
+    assert len(ta.get_upstream(depth_2_tree.vs[1000], depth_2_tree, depth_2_tree_thin)) == 0
+
+    for i in range(900, 1000):
+        depth_2_tree_thin.delete_vertices(depth_2_tree_thin.vs.find(name=i).index)
+        assert len(ta.get_upstream(depth_2_tree.vs[0], depth_2_tree, depth_2_tree_thin)) == 10990 - ((i - 899) * 11)
+        assert len(ta.get_upstream(depth_2_tree.vs[i], depth_2_tree, depth_2_tree_thin)) == 0
+
+    depth_2_tree_thin.delete_vertices(0)
+    assert len(ta.get_upstream(depth_2_tree.vs[0], depth_2_tree, depth_2_tree_thin)) == 0
+
+    pole_and_twig = make_pole_and_twig()
+    assert len(ta.get_upstream(pole_and_twig.vs[0], pole_and_twig, pole_and_twig)) == 1001
+
+    pole_and_twig_thin = copy.deepcopy(pole_and_twig)
+
+    pole_and_twig_thin.delete_vertices(1)
+    assert len(ta.get_upstream(pole_and_twig.vs[0], pole_and_twig, pole_and_twig_thin)) == 2
+
+    pole_and_twig_thin.delete_vertices(0)
+    assert len(ta.get_upstream(pole_and_twig.vs[0], pole_and_twig, pole_and_twig_thin)) == 0
 
 
 def test_some_terminal_suppliers_reachable():
@@ -133,3 +182,4 @@ def test_percent_terminal_suppliers_reachable():
 if __name__ == "__main__":
     test_get_reachable_nodes()
     test_get_terminal_nodes()
+    test_get_upstream()
