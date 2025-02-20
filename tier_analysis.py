@@ -656,12 +656,6 @@ def get_node_breakdown_threshold(node, G, breakdown_threshold=breakdown_threshol
 
 
 if __name__ == '__main__':
-    # DEBUG
-    # Temporarily point all input and output to a different folder for debugging purposes
-    print('WARNING!!! This code still includes some debugging code that will make it so it either won\'t work at all or won\'t work as expected.')
-    print('Feel free to let me know I forgot to take it out, and I can get it fixed. -Isaac')
-    os.chdir('..\\Cascading Failure')
-
     start_time = datetime.datetime.now().strftime('%m-%d-%Y_%H-%M-%S')
 
     df = get_df()
