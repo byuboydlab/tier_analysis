@@ -197,7 +197,7 @@ def some_terminal_suppliers_reachable(i, G, G_thin, t=None, u=None):
     if u is None:
         u = get_upstream(i, G, G_thin)
 
-    if u & t:  # set intersection
+    if len(u.intersection(t)) > 0:  # set intersection
         return True
     return False
 
@@ -212,7 +212,7 @@ def percent_terminal_suppliers_reachable(i, G, G_thin, t=None, u=None):
     if u is None:
         u = get_upstream(i, G, G_thin)
 
-    return len(set(t) & u) / len(t)
+    return len(t.intersection(u)) / len(t)
 
 
 percent_terminal_suppliers_reachable.description = 'Avg. percent end suppliers reachable'
