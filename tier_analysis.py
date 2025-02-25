@@ -18,7 +18,7 @@ from copy import deepcopy
 data_file_name = 'small_med.xlsx'
 should_compare_tiers = True
 should_get_thresholds = False
-parallel_mode = 'repeat'   # Can equal 'auto', 'repeat', 'rho', or None
+parallel_mode = 'rho'   # Can equal 'auto', 'repeat', 'rho', or None
 has_metadata = False
 max_tiers = 3
 reachable_node_threshold = 500
@@ -336,7 +336,6 @@ def failure_reachability_sweep(G,
                                callbacks,
                                targeted_factory(G)]] * len(rho))))
         avgs = client.gather(avgs)
-        client.close()
     else:
 
         targeted = targeted_factory(G)
@@ -414,7 +413,6 @@ def failure_reachability(G,
 
         avgs = client.map(wrapper_function, range(repeats))
         avgs = client.gather(avgs)
-        client.close()
     elif parallel == 'rho':
         avgs = [failure_reachability_sweep(*args[0], parallel=True)]
     else:
