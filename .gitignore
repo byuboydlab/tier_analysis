@@ -33,3 +33,5 @@ us_protected
 .gitignore
 *.csv
 *.pkl
+*.xlsx
+*.svg
