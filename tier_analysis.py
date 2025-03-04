@@ -237,6 +237,47 @@ def impute_industry(G):
         v['industry'] = s
 
 
+def reverse(G):
+    Tier = dict(Tier=G.es['Tier'])
+    edges = [tuple(reversed(e.tuple)) for e in G.es]
+    G.delete_edges(None)
+    G.add_edges(edges, Tier)
+    G.reversed = not G.reversed
+
+
+def get_sorted_attr_inds(G, attr):
+
+    sorted_attr_inds = dict()
+    sorted_attr_inds['firm'] = sorted(
+        range(G.vcount()), key=G.vs[attr].__getitem__)
+    for failure_scale in ['country', 'industry', 'country-industry']:
+        sorted_attr_inds[failure_scale] = sorted(set(G.vs[failure_scale]), key=lambda x: sum(
+            G.vs(lambda v: v[failure_scale] == x)[attr]))
+    return sorted_attr_inds
+
+
+def target_by_attribute(G, attr, protected_countries=[]):
+
+    sorted_attr_inds = get_sorted_attr_inds(G, attr)
+
+    def targeted(r, failure_scale='firm'):
+        to_keep = sorted_attr_inds[failure_scale][:int(
+            len(sorted_attr_inds[failure_scale]) * r)]
+        if failure_scale == 'firm':
+            return G.induced_subgraph(
+                to_keep +
+                list(
+                    G.vs(
+                        lambda x: x['country'] in protected_countries)))
+        else:
+            return G.induced_subgraph(G.vs(lambda x: (
+                str(x[failure_scale]) in to_keep) or (x['country'] in protected_countries)))
+
+    targeted.description = attr
+
+    return targeted
+
+
 def random_thinning_factory(G):
     firm_rands = np.random.random(G.vcount())
 
@@ -263,6 +304,65 @@ def random_thinning_factory(G):
 
 
 random_thinning_factory.description = 'Random'
+
+
+def get_employee_attack(G, protected_countries=[]):
+    try:
+        G.vs['Employees_imputed']
+    except BaseException:
+        G.vs['Employees_imputed'] = [math.isnan(x) for x in G.vs['Employees']]
+    size_dist_private = np.array([x['Employees']
+                                 for x in G.vs if not x['Employees_imputed']])
+    imputed_size = np.random.choice(
+        size_dist_private, len(
+            G.vs(
+                Employees_imputed_eq=True)))
+    for v, s in zip(G.vs(Employees_imputed_eq=True), imputed_size):
+        v['Employees'] = s
+    return target_by_attribute(
+        G, 'Employees', protected_countries=protected_countries)
+
+
+get_employee_attack.description = 'Employees'
+
+
+def get_degree_attack(G):
+    G.vs['degree'] = G.degree(range(G.vcount()))
+    return target_by_attribute(G, 'degree')
+
+
+get_degree_attack.description = 'Degree'
+
+
+def get_pagerank_attack(G, transpose=True, protected_countries=[]):
+
+    attrname = 'Pagerank of transpose' if transpose else 'Pagerank'
+    try:
+        G[attrname]
+    except BaseException:
+        if transpose:
+            reverse(G)
+            pr = G.pagerank()
+            reverse(G)
+        else:
+            pr = G.pagerank()
+        G.vs[attrname] = pr
+
+    return target_by_attribute(
+        G, attrname, protected_countries=protected_countries)
+
+
+get_pagerank_attack.description = 'Pagerank of transpose'
+
+
+def get_pagerank_attack_no_transpose(G, protected_countries=[]):
+    return get_pagerank_attack(
+        G,
+        transpose=False,
+        protected_countries=protected_countries)
+
+
+get_pagerank_attack_no_transpose.description = 'Pagerank'
 
 
 def failure_plot(
