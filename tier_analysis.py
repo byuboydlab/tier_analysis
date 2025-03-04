@@ -16,9 +16,10 @@ from copy import deepcopy
 
 # User-set parameters
 data_file_name = 'small_med.xlsx'
-should_compare_tiers = True
-should_get_thresholds = False
-parallel_mode = 'rho'   # Can equal 'auto', 'repeat', 'rho', or None
+should_compare_tiers = False
+should_get_thresholds = True
+tiers_parallel_mode = 'rho'   # Can equal 'auto', 'repeat', 'rho', or None  TODO: add 'all' for particularly ambitious computers
+thresholds_parallel = True   # Can equal True or False
 has_metadata = False
 max_tiers = 3
 reachable_node_threshold = 500
@@ -325,7 +326,7 @@ def failure_reachability_sweep(G,
         ts = [set(get_terminal_nodes(i, G)) for i in demand_nodes]
 
     avgs = []
-    if parallel:
+    if parallel == 'rho':
         client = dist.get_client()
         avgs = client.map(failure_reachability_single,
                   rho,
@@ -414,7 +415,7 @@ def failure_reachability(G,
         avgs = client.map(wrapper_function, range(repeats))
         avgs = client.gather(avgs)
     elif parallel == 'rho':
-        avgs = [failure_reachability_sweep(*args[0], parallel=True)]
+        avgs = [failure_reachability_sweep(*args[0], parallel='rho')]
     else:
         avgs = [failure_reachability_sweep(*args[0]) for _ in range(repeats)]
     avgs = pd.concat(avgs, ignore_index=True)
@@ -593,7 +594,7 @@ def get_node_breakdown_threshold(node, G, breakdown_threshold=breakdown_threshol
         # find node in G_thin that corresponds to node in G
         try:
             node_thin = G_thin.vs.select(name=node['name'])[0]
-        except ValueError:
+        except (ValueError, IndexError):
             break  # node was deleted
 
         reachable_node_count = len(
@@ -622,7 +623,7 @@ if __name__ == '__main__':
     get_node_tier_from_edge_tier(G)
 
     if should_compare_tiers:
-        res = compare_tiers(G, parallel = parallel_mode)
+        res = compare_tiers(G, parallel = tiers_parallel_mode)
         dists = between_tier_distances(res)
         print(dists)
 
@@ -646,7 +647,7 @@ if __name__ == '__main__':
                 (len(nodes), repeats_per_node)), index=nodes['name'], columns=list(
                 range(repeats_per_node)))
 
-        if parallel_mode:
+        if thresholds_parallel:
             def repeat_breakdown_test(node, repeat_idx):
                 res = get_node_breakdown_threshold(G.vs[node], G, breakdown_threshold, thinning_ratio)
                 return res
