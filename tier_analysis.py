@@ -17,6 +17,7 @@ from copy import deepcopy
 
 # User-set parameters
 data_file_name = 'small_med.xlsx'
+attack_type = 'Random'   # Can equal 'Random', 'Employee', 'Degree', 'Pagerank transpose', or 'Pagerank'
 should_compare_tiers = True
 should_get_thresholds = False
 use_parallel = False
@@ -27,6 +28,7 @@ breakdown_threshold = 0.80
 thinning_ratio = 0.005
 repeats_per_node = 20
 parallel_job_count = 6
+
 
 def get_df(extra_tiers=False):
     global file_name
@@ -197,7 +199,7 @@ def some_terminal_suppliers_reachable(i, G, G_thin, t=None, u=None):
     if u is None:
         u = get_upstream(i, G, G_thin)
 
-    if u & t:  # set intersection
+    if len(u.intersection(t)) > 0:  # set intersection
         return True
     return False
 
@@ -212,7 +214,7 @@ def percent_terminal_suppliers_reachable(i, G, G_thin, t=None, u=None):
     if u is None:
         u = get_upstream(i, G, G_thin)
 
-    return len(set(t) & u) / len(t)
+    return len(t.intersection(u)) / len(t)
 
 
 percent_terminal_suppliers_reachable.description = 'Avg. percent end suppliers reachable'
@@ -235,6 +237,47 @@ def impute_industry(G):
         G.vs(industry_imputed_eq=True)), replace=True)
     for v, s in zip(G.vs(industry_imputed_eq=True), imputed_industry):
         v['industry'] = s
+
+
+def reverse(G):
+    Tier = dict(Tier=G.es['Tier'])
+    edges = [tuple(reversed(e.tuple)) for e in G.es]
+    G.delete_edges(None)
+    G.add_edges(edges, Tier)
+    G.reversed = not G.reversed
+
+
+def get_sorted_attr_inds(G, attr):
+
+    sorted_attr_inds = dict()
+    sorted_attr_inds['firm'] = sorted(
+        range(G.vcount()), key=G.vs[attr].__getitem__)
+    for failure_scale in ['country', 'industry', 'country-industry']:
+        sorted_attr_inds[failure_scale] = sorted(set(G.vs[failure_scale]), key=lambda x: sum(
+            G.vs(lambda v: v[failure_scale] == x)[attr]))
+    return sorted_attr_inds
+
+
+def target_by_attribute(G, attr, protected_countries=[]):
+
+    sorted_attr_inds = get_sorted_attr_inds(G, attr)
+
+    def targeted(r, failure_scale='firm'):
+        to_keep = sorted_attr_inds[failure_scale][:int(
+            len(sorted_attr_inds[failure_scale]) * r)]
+        if failure_scale == 'firm':
+            return G.induced_subgraph(
+                to_keep +
+                list(
+                    G.vs(
+                        lambda x: x['country'] in protected_countries)))
+        else:
+            return G.induced_subgraph(G.vs(lambda x: (
+                str(x[failure_scale]) in to_keep) or (x['country'] in protected_countries)))
+
+    targeted.description = attr
+
+    return targeted
 
 
 def random_thinning_factory(G):
@@ -263,6 +306,65 @@ def random_thinning_factory(G):
 
 
 random_thinning_factory.description = 'Random'
+
+
+def get_employee_attack(G, protected_countries=[]):
+    try:
+        G.vs['Employees_imputed']
+    except BaseException:
+        G.vs['Employees_imputed'] = [math.isnan(x) for x in G.vs['Employees']]
+    size_dist_private = np.array([x['Employees']
+                                 for x in G.vs if not x['Employees_imputed']])
+    imputed_size = np.random.choice(
+        size_dist_private, len(
+            G.vs(
+                Employees_imputed_eq=True)))
+    for v, s in zip(G.vs(Employees_imputed_eq=True), imputed_size):
+        v['Employees'] = s
+    return target_by_attribute(
+        G, 'Employees', protected_countries=protected_countries)
+
+
+get_employee_attack.description = 'Employees'
+
+
+def get_degree_attack(G):
+    G.vs['degree'] = G.degree(range(G.vcount()))
+    return target_by_attribute(G, 'degree')
+
+
+get_degree_attack.description = 'Degree'
+
+
+def get_pagerank_attack(G, transpose=True, protected_countries=[]):
+
+    attrname = 'Pagerank of transpose' if transpose else 'Pagerank'
+    try:
+        G[attrname]
+    except BaseException:
+        if transpose:
+            reverse(G)
+            pr = G.pagerank()
+            reverse(G)
+        else:
+            pr = G.pagerank()
+        G.vs[attrname] = pr
+
+    return target_by_attribute(
+        G, attrname, protected_countries=protected_countries)
+
+
+get_pagerank_attack.description = 'Pagerank of transpose'
+
+
+def get_pagerank_attack_no_transpose(G, protected_countries=[]):
+    return get_pagerank_attack(
+        G,
+        transpose=False,
+        protected_countries=protected_countries)
+
+
+get_pagerank_attack_no_transpose.description = 'Pagerank'
 
 
 def failure_plot(
@@ -616,34 +718,6 @@ def between_tier_distances(res, rho = "Percent firms remaining", attack=random_t
     return distances_df
 
 
-def get_reachable_nodes(node, G):
-    if isinstance(node, ig.Vertex):
-        node = node.index
-
-    u = G.bfs(node, mode='IN')
-    u = u[0][:u[1][-1]]  # remove trailing zeros
-
-    # return the ids of the nodes
-    return {G.vs['name'][i] for i in u}
-
-
-def get_terminal_nodes(node, G):
-    if isinstance(node, ig.Vertex):
-        node = node.index
-
-    reachable_nodes = get_reachable_nodes(node, G)
-    reachable_graph = G.induced_subgraph(reachable_nodes)
-
-    sccs = reachable_graph.connected_components()
-
-    terminal_components = sccs.cluster_graph().vs(_indegree_eq=0)
-    sccs = list(sccs)
-    terminal_nodes = [sccs[node.index] for node in terminal_components]
-    terminal_nodes = {reachable_graph.vs[node]['name']
-                      for node in itertools.chain(*terminal_nodes)}
-    return terminal_nodes
-
-
 def get_node_breakdown_threshold(node, G, breakdown_threshold=breakdown_threshold, thinning_ratio=thinning_ratio):
 
     # if node is int, convert to vertex
@@ -684,12 +758,6 @@ def get_node_breakdown_threshold(node, G, breakdown_threshold=breakdown_threshol
 
 
 if __name__ == '__main__':
-    # DEBUG
-    # Temporarily point all input and output to a different folder for debugging purposes
-    print('WARNING!!! This code still includes some debugging code that will make it so it either won\'t work at all or won\'t work as expected.')
-    print('Feel free to let me know I forgot to take it out, and I can get it fixed. -Isaac')
-    os.chdir('..\\Cascading Failure')
-
     start_time = datetime.datetime.now().strftime('%m-%d-%Y_%H-%M-%S')
 
     df = get_df()
@@ -697,7 +765,20 @@ if __name__ == '__main__':
     get_node_tier_from_edge_tier(G)
 
     if should_compare_tiers:
-        res = compare_tiers(G, parallel = use_parallel)
+        if attack_type == 'Random':
+            factory = random_thinning_factory
+        elif attack_type == 'Employee':
+            factory = get_employee_attack
+        elif attack_type == 'Degree':
+            factory = get_degree_attack
+        elif attack_type == 'Pagerank':
+            factory = get_pagerank_attack_no_transpose
+        elif attack_type == 'Pagerank transpose':
+            factory = get_pagerank_attack
+        else:
+            raise ValueError("Valid values of attack_type are 'Random', 'Employee', 'Degree', 'Pagerank', and 'Pagerank transpose'")
+
+        res = compare_tiers(G, parallel = use_parallel, attack = factory)
         dists = between_tier_distances(res)
         print(dists)
 

@@ -1,6 +1,8 @@
-from pharma_analysis import *
-import igraph as ig
 import sc
+import pharma_analysis as pa
+import numpy as np
+import igraph as ig
+import matplotlib.pyplot as plt
 
 
 def make_depth_1_tree():
@@ -64,7 +66,7 @@ def make_pole_and_twig():
 
 def test_get_node_breakdown_threshold_pole_and_twig():
     G = make_pole_and_twig()
-    threshold = get_node_breakdown_threshold(
+    threshold = pa.get_node_breakdown_threshold(
         G.vs.select(
             name=0)[0],
         G,
@@ -84,7 +86,7 @@ def test_get_node_breakdown_threshold_tree_1():
     thinning_ratio = 5 / 1000
     sd = np.sqrt(G.vcount() * thinning_ratio * (1 - thinning_ratio))
     assert abs(
-        get_node_breakdown_threshold(
+        pa.get_node_breakdown_threshold(
             node,
             G,
             breakdown_threshold=.95,
@@ -141,7 +143,7 @@ def tree_graph_test():
 
     med_suppliers = [i * N for i in range(tree_count)]
 
-    res = failure_reachability(G, med_suppliers=med_suppliers, repeats=repeats)
+    res = sc.failure_reachability(G, med_suppliers=med_suppliers, repeats=repeats)
 
     gb = res.groupby('Percent firms remaining')
     observed = gb.mean()['Avg. percent end suppliers reachable']
