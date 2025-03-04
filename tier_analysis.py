@@ -16,6 +16,7 @@ from copy import deepcopy
 
 # User-set parameters
 data_file_name = 'med.xlsx'
+attack_type = 'Random'   # Can equal 'Random', 'Employee', 'Degree', 'Pagerank transpose', or 'Pagerank'
 should_compare_tiers = True
 should_get_thresholds = False
 use_parallel = False
@@ -763,7 +764,20 @@ if __name__ == '__main__':
     get_node_tier_from_edge_tier(G)
 
     if should_compare_tiers:
-        res = compare_tiers(G, parallel = use_parallel)
+        if attack_type == 'Random':
+            factory = random_thinning_factory
+        elif attack_type == 'Employee':
+            factory = get_employee_attack
+        elif attack_type == 'Degree':
+            factory = get_degree_attack
+        elif attack_type == 'Pagerank':
+            factory = get_pagerank_attack_no_transpose
+        elif attack_type == 'Pagerank transpose':
+            factory = get_pagerank_attack
+        else:
+            raise ValueError("Valid values of attack_type are 'Random', 'Employee', 'Degree', 'Pagerank', and 'Pagerank transpose'")
+
+        res = compare_tiers(G, parallel = use_parallel, attack = factory)
         dists = between_tier_distances(res)
         print(dists)
 
