@@ -470,7 +470,6 @@ def failure_reachability_sweep(G,
         targeted = targeted_factory(G)
 
         for r in tqdm.tqdm(rho, desc='Reachability sweep', leave=False):
-            print(r)
             avgs.append(
                 failure_reachability_single(
                     r,
@@ -566,7 +565,7 @@ def failure_reachability(G,
     elif parallel == 'rho':
         avgs = [failure_reachability_sweep(*args[0], parallel=True)]
     else:
-        avgs = [failure_reachability_sweep(*args[0]) for _ in tqdm.tqdm(range(repeats), desc='Reachability overall', leave=False)]
+        avgs = [failure_reachability_sweep(*args[0]) for _ in tqdm.tqdm(range(repeats), desc='Reachability tier', leave=False)]
     avgs = pd.concat(avgs, ignore_index=True)
 
     if plot:
@@ -653,8 +652,6 @@ def compare_tiers(G,
     G = deepcopy(G) # We don't want to modify the original graph
     res = pd.DataFrame() # Final results
     for tiers in tqdm.tqdm(reversed(tier_range), total=len(tier_range), desc = 'Compare tiers'): # iterate over the number of tiers included
-        print("Calling failure_reachability with", tiers, "tiers")
-
         G = reduce_tiers(G, tiers) # Reduce the graph to the desired number of tiers
 
         # Call failure_reachability with the reduced graph
