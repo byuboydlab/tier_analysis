@@ -1,4 +1,4 @@
-name: sc_robustness_dask
+name: sc_robustness
 channels:
   - conda-forge
 dependencies:
@@ -14,4 +14,5 @@ dependencies:
   - ca-certificates
   - certifi
   - openssl
+  - tqdm
 prefix: C:\Users\Isaac\miniforge3\envs\sc_robustness

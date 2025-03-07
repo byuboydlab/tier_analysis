@@ -5,6 +5,7 @@ import pickle
 import dill
 import itertools
 import random
+import tqdm
 import numpy as np
 import pandas as pd
 import igraph as ig
@@ -15,7 +16,8 @@ from copy import deepcopy
 
 
 # User-set parameters
-data_file_name = 'small_med.xlsx'
+data_file_name = 'small_small_med.xlsx'
+attack_type = 'Random'   # Can equal 'Random', 'Employee', 'Degree', 'Pagerank transpose', or 'Pagerank'
 should_compare_tiers = False
 should_get_thresholds = True
 tiers_parallel_mode = 'rho'   # Can equal 'auto', 'repeat', 'rho', or None  TODO: add 'all' for particularly ambitious computers
@@ -218,6 +220,47 @@ def impute_industry(G):
         v['industry'] = s
 
 
+def reverse(G):
+    Tier = dict(Tier=G.es['Tier'])
+    edges = [tuple(reversed(e.tuple)) for e in G.es]
+    G.delete_edges(None)
+    G.add_edges(edges, Tier)
+    G.reversed = not G.reversed
+
+
+def get_sorted_attr_inds(G, attr):
+
+    sorted_attr_inds = dict()
+    sorted_attr_inds['firm'] = sorted(
+        range(G.vcount()), key=G.vs[attr].__getitem__)
+    for failure_scale in ['country', 'industry', 'country-industry']:
+        sorted_attr_inds[failure_scale] = sorted(set(G.vs[failure_scale]), key=lambda x: sum(
+            G.vs(lambda v: v[failure_scale] == x)[attr]))
+    return sorted_attr_inds
+
+
+def target_by_attribute(G, attr, protected_countries=[]):
+
+    sorted_attr_inds = get_sorted_attr_inds(G, attr)
+
+    def targeted(r, failure_scale='firm'):
+        to_keep = sorted_attr_inds[failure_scale][:int(
+            len(sorted_attr_inds[failure_scale]) * r)]
+        if failure_scale == 'firm':
+            return G.induced_subgraph(
+                to_keep +
+                list(
+                    G.vs(
+                        lambda x: x['country'] in protected_countries)))
+        else:
+            return G.induced_subgraph(G.vs(lambda x: (
+                str(x[failure_scale]) in to_keep) or (x['country'] in protected_countries)))
+
+    targeted.description = attr
+
+    return targeted
+
+
 def random_thinning_factory(G):
     firm_rands = np.random.random(G.vcount())
 
@@ -244,6 +287,65 @@ def random_thinning_factory(G):
 
 
 random_thinning_factory.description = 'Random'
+
+
+def get_employee_attack(G, protected_countries=[]):
+    try:
+        G.vs['Employees_imputed']
+    except BaseException:
+        G.vs['Employees_imputed'] = [math.isnan(x) for x in G.vs['Employees']]
+    size_dist_private = np.array([x['Employees']
+                                 for x in G.vs if not x['Employees_imputed']])
+    imputed_size = np.random.choice(
+        size_dist_private, len(
+            G.vs(
+                Employees_imputed_eq=True)))
+    for v, s in zip(G.vs(Employees_imputed_eq=True), imputed_size):
+        v['Employees'] = s
+    return target_by_attribute(
+        G, 'Employees', protected_countries=protected_countries)
+
+
+get_employee_attack.description = 'Employees'
+
+
+def get_degree_attack(G):
+    G.vs['degree'] = G.degree(range(G.vcount()))
+    return target_by_attribute(G, 'degree')
+
+
+get_degree_attack.description = 'Degree'
+
+
+def get_pagerank_attack(G, transpose=True, protected_countries=[]):
+
+    attrname = 'Pagerank of transpose' if transpose else 'Pagerank'
+    try:
+        G[attrname]
+    except BaseException:
+        if transpose:
+            reverse(G)
+            pr = G.pagerank()
+            reverse(G)
+        else:
+            pr = G.pagerank()
+        G.vs[attrname] = pr
+
+    return target_by_attribute(
+        G, attrname, protected_countries=protected_countries)
+
+
+get_pagerank_attack.description = 'Pagerank of transpose'
+
+
+def get_pagerank_attack_no_transpose(G, protected_countries=[]):
+    return get_pagerank_attack(
+        G,
+        transpose=False,
+        protected_countries=protected_countries)
+
+
+get_pagerank_attack_no_transpose.description = 'Pagerank'
 
 
 def failure_plot(
@@ -340,8 +442,7 @@ def failure_reachability_sweep(G,
 
         targeted = targeted_factory(G)
 
-        for r in rho:
-            print(r)
+        for r in tqdm.tqdm(rho, desc='Reachability sweep', leave=False):
             avgs.append(
                 failure_reachability_single(
                     r,
@@ -416,7 +517,7 @@ def failure_reachability(G,
     elif parallel == 'rho':
         avgs = [failure_reachability_sweep(*args[0], parallel='rho')]
     else:
-        avgs = [failure_reachability_sweep(*args[0]) for _ in range(repeats)]
+        avgs = [failure_reachability_sweep(*args[0]) for _ in tqdm.tqdm(range(repeats), desc='Reachability tier', leave=False)]
     avgs = pd.concat(avgs, ignore_index=True)
 
     if plot:
@@ -502,9 +603,7 @@ def compare_tiers(G,
 
     G = deepcopy(G) # We don't want to modify the original graph
     res = pd.DataFrame() # Final results
-    for tiers in reversed(tier_range): # iterate over the number of tiers included
-        print("Calling failure_reachability with", tiers, "tiers")
-
+    for tiers in tqdm.tqdm(reversed(tier_range), total=len(tier_range), desc = 'Compare tiers'): # iterate over the number of tiers included
         G = reduce_tiers(G, tiers) # Reduce the graph to the desired number of tiers
 
         # Call failure_reachability with the reduced graph
@@ -622,7 +721,20 @@ if __name__ == '__main__':
     get_node_tier_from_edge_tier(G)
 
     if should_compare_tiers:
-        res = compare_tiers(G, parallel = tiers_parallel_mode)
+        if attack_type == 'Random':
+            factory = random_thinning_factory
+        elif attack_type == 'Employee':
+            factory = get_employee_attack
+        elif attack_type == 'Degree':
+            factory = get_degree_attack
+        elif attack_type == 'Pagerank':
+            factory = get_pagerank_attack_no_transpose
+        elif attack_type == 'Pagerank transpose':
+            factory = get_pagerank_attack
+        else:
+            raise ValueError("Valid values of attack_type are 'Random', 'Employee', 'Degree', 'Pagerank', and 'Pagerank transpose'")
+
+        res = compare_tiers(G, parallel = tiers_parallel, attack = factory_mode)
         dists = between_tier_distances(res)
         print(dists)
 
