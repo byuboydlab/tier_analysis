@@ -633,9 +633,21 @@ if __name__ == '__main__':
         # get nodes with at least reachable_node_threshold of reachable nodes
         nodes = G.vs.select(Tier=0)
         reachability_counts = pd.DataFrame(data=np.zeros(len(nodes)), index=nodes['name'], columns=['counts'])
+        
+        if thresholds_parallel:
+            nodes_and_graph = [(node, G) for node in nodes]
+            def parallel_reachability(node, G):
+                reachable = get_reachable_nodes(node, G)
+                return (node, reachable)
+            
+            res = client.map(parallel_reachability, *nodes_and_graph)
+            res = client.gather(res)
 
-        for node in nodes:
-            reachability_counts.at[node['name'], 'counts'] = len(get_reachable_nodes(node, G))
+            for node, reachable in res:
+                reachability_counts.at[node['name'], 'counts'] = len(reachable)
+        else:
+            for node in nodes:
+                reachability_counts.at[node['name'], 'counts'] = len(get_reachable_nodes(node, G))
 
 
         reachability_counts = reachability_counts[reachability_counts['counts'] >= reachable_node_threshold] # cutoff to exclude nodes with few reachable nodes
