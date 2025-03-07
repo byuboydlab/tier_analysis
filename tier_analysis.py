@@ -26,7 +26,6 @@ reachable_node_threshold = 500
 breakdown_threshold = 0.80
 thinning_ratio = 0.005
 repeats_per_node = 20
-parallel_job_count = 6
 
 
 def get_df(extra_tiers=False):
@@ -326,7 +325,7 @@ def failure_reachability_sweep(G,
         ts = [set(get_terminal_nodes(i, G)) for i in demand_nodes]
 
     avgs = []
-    if parallel == 'rho':
+    if parallel == 'rho' or parallel == 'all':
         client = dist.get_client()
         avgs = client.map(failure_reachability_single,
                   rho,
@@ -398,7 +397,7 @@ def failure_reachability(G,
             ] * repeats  # Beware here that the copy here is very shallow
 
 
-    if parallel == 'repeat':
+    if parallel == 'repeat' or parallel == 'all':
         print('Doing parallel map now.')
         client = dist.get_client()
 
