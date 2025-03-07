@@ -20,7 +20,7 @@ data_file_name = 'small_small_med.xlsx'
 attack_type = 'Random'   # Can equal 'Random', 'Employee', 'Degree', 'Pagerank transpose', or 'Pagerank'
 should_compare_tiers = False
 should_get_thresholds = True
-tiers_parallel_mode = 'rho'   # Can equal 'auto', 'repeat', 'rho', or None  TODO: add 'all' for particularly ambitious computers
+tiers_parallel_mode = 'rho'   # Can equal 'auto', 'repeat', 'rho', 'all', or None
 thresholds_parallel = True   # Can equal True or False
 has_metadata = False
 max_tiers = 3
@@ -750,13 +750,16 @@ if __name__ == '__main__':
             nodes_and_graph = [(node, G) for node in nodes]
             def parallel_reachability(node, G):
                 reachable = get_reachable_nodes(node, G)
-                return (node, reachable)
+                return (node, len(reachable))
             
             res = client.map(parallel_reachability, *nodes_and_graph)
             res = client.gather(res)
 
-            for node, reachable in res:
-                reachability_counts.at[node['name'], 'counts'] = len(reachable)
+            for node, count in res:
+                reachability_counts.at[node['name'], 'counts'] = count
+            
+            # DEBUG
+            print(reachability_counts)
         else:
             for node in nodes:
                 reachability_counts.at[node['name'], 'counts'] = len(get_reachable_nodes(node, G))
