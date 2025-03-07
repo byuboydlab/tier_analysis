@@ -734,7 +734,7 @@ if __name__ == '__main__':
         else:
             raise ValueError("Valid values of attack_type are 'Random', 'Employee', 'Degree', 'Pagerank', and 'Pagerank transpose'")
 
-        res = compare_tiers(G, parallel = tiers_parallel, attack = factory_mode)
+        res = compare_tiers(G, parallel = tiers_parallel_mode, attack = factory)
         dists = between_tier_distances(res)
         print(dists)
 
