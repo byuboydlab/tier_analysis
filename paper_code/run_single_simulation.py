@@ -1,4 +1,4 @@
-from med import *
+from paper_code.med import *
 
 import argparse
 
