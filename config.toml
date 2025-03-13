@@ -7,15 +7,15 @@ max_tiers = 3
 
 
 [operations]
-compare_tiers = true
-get_thresholds = false
+compare_tiers = false
+get_thresholds = true
 
 
 [parallel]
 # Can equal 'auto', 'repeat', 'rho', 'all', or false
 tiers_parallel_mode = false
 # Can equal true or false
-thresholds_parallel = false
+thresholds_parallel = true
 
 
 [breakdown_thresholds]
