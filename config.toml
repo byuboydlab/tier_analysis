@@ -7,8 +7,8 @@ max_tiers = 3
 
 
 [operations]
-compare_tiers = false
-get_thresholds = true
+compare_tiers = true
+get_thresholds = false
 
 
 [parallel]
