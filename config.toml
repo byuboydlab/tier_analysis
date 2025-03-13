@@ -4,7 +4,7 @@ data_file_name = 'small_med.xlsx'
 attack_type = 'Random'
 has_metadata = false
 max_tiers = 3
-repeats_per_node = 20
+
 
 [operations]
 compare_tiers = false
@@ -22,3 +22,4 @@ thresholds_parallel = true
 reachable_node_threshold = 500
 breakdown_threshold = 0.80
 thinning_ratio = 0.005
+repeats_per_node = 20
