@@ -14,7 +14,7 @@ get_thresholds = true
 [parallel]
 # Can equal 'auto', 'repeat', 'rho', 'all', or None
 tiers_parallel_mode = 'rho'
-# Can equal True or False
+# Can equal true or false
 thresholds_parallel = true
 
 
