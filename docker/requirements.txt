@@ -1,0 +1,13 @@
+dill==0.3.9
+numpy==2.2.3
+pandas==2.2.3
+python-igraph==0.11.6
+matplotlib==3.10.1
+seaborn==0.13.2
+dask==2025.2.0
+cachey==0.2.1
+openpyxl==3.1.5
+ca-certificates==20205.1.31
+certifi==2025.1.31
+openssl==3.4.1
+tqdm==4.67.1
