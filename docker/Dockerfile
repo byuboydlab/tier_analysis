@@ -1,10 +1,11 @@
-FROM python:3.13.2
+FROM condaforge/miniforge3
 
 WORKDIR /app
 
-ADD ./docker/requirements.txt .
+ADD environment.yml .
 ADD tier_analysis.py .
 
-RUN pip install -r requirements.txt
+RUN conda env create -f environment.yml
+RUN conda activate sc_robustness
 
 CMD [ "python", "./tier_analysis.py" ]
