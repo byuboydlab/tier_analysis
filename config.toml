@@ -1,5 +1,5 @@
 [general]
-data_file_name = 'small_small_med.xlsx'
+data_file_name = 'small_med.xlsx'
 # Can equal 'Random', 'Employee', 'Degree', 'Pagerank transpose', or 'Pagerank'
 attack_type = 'Random'
 has_metadata = false
@@ -18,7 +18,7 @@ tiers_parallel_mode = 'rho'
 thresholds_parallel = true
 
 
-[breakdown_threshold]
+[breakdown_thresholds]
 reachable_node_threshold = 500
 breakdown_threshold = 0.80
 thinning_ratio = 0.005

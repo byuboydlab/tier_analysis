@@ -16,7 +16,7 @@ from copy import deepcopy
 
 
 # User-set parameters
-data_file_name = 'small_small_med.xlsx'
+data_file_name = 'small_med.xlsx'
 attack_type = 'Random'   # Can equal 'Random', 'Employee', 'Degree', 'Pagerank transpose', or 'Pagerank'
 should_compare_tiers = False
 should_get_thresholds = True
