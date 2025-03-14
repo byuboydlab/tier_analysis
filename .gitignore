@@ -35,3 +35,4 @@ us_protected
 *.pkl
 *.xlsx
 *.svg
+.vscode
