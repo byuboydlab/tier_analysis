@@ -1,4 +1,4 @@
-name: sc_robustness_
+name: sc_robustness
 channels:
   - conda-forge
 dependencies:
