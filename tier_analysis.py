@@ -11,23 +11,23 @@ import pandas as pd
 import igraph as ig
 import matplotlib.pyplot as plt
 import seaborn as sns
-import ipyparallel as ipp
+import dask.distributed as dist
 from copy import deepcopy
 
 
 # User-set parameters
-data_file_name = 'small_med.xlsx'
+data_file_name = 'small_small_med.xlsx'
 attack_type = 'Random'   # Can equal 'Random', 'Employee', 'Degree', 'Pagerank transpose', or 'Pagerank'
-should_compare_tiers = True
-should_get_thresholds = False
-use_parallel = False
+should_compare_tiers = False
+should_get_thresholds = True
+tiers_parallel_mode = 'rho'   # Can equal 'auto', 'repeat', 'rho', 'all', or None
+thresholds_parallel = True   # Can equal True or False
 has_metadata = False
-max_tiers = 10
+max_tiers = 3
 reachable_node_threshold = 500
 breakdown_threshold = 0.80
 thinning_ratio = 0.005
 repeats_per_node = 20
-parallel_job_count = 6
 
 
 def get_df(extra_tiers=False):
@@ -172,25 +172,6 @@ def get_plural(x):
         return 'country-industries'
     else:
         raise NotImplementedError
-
-
-if os.name == 'posix':
-    n_cpus = len(os.sched_getaffinity(0))
-elif os.name == 'nt':
-    n_cpus = os.cpu_count()
-cluster = ipp.Cluster(n = n_cpus - 2)
-cluster_is_started = False
-
-def get_dv():
-    global cluster_is_started
-    if not cluster_is_started:
-        cluster.start_cluster_sync()
-        cluster_is_started = True
-    client = cluster.connect_client_sync()
-    client.wait_for_engines()
-    dv = client[:]
-    dv.use_dill()
-    return dv
 
 
 def some_terminal_suppliers_reachable(i, G, G_thin, t=None, u=None):
@@ -446,18 +427,9 @@ def failure_reachability_sweep(G,
         ts = [set(get_terminal_nodes(i, G)) for i in demand_nodes]
 
     avgs = []
-    if parallel:
-        dv = get_dv()
-        dv['G'] = G
-        dv['demand_nodes'] = demand_nodes
-        dv['ts'] = ts
-        dv['failure_scale'] = failure_scale
-        dv['callbacks'] = callbacks
-        dv['targeted_factory'] = targeted_factory
-
-        assert(False)
-
-        avgs = dv.map(failure_reachability_single,
+    if parallel == 'rho' or parallel == 'all':
+        client = dist.get_client()
+        avgs = client.map(failure_reachability_single,
                   rho,
                   *list(zip(*[[G,
                                demand_nodes,
@@ -465,6 +437,7 @@ def failure_reachability_sweep(G,
                                failure_scale,
                                callbacks,
                                targeted_factory(G)]] * len(rho))))
+        avgs = client.gather(avgs)
     else:
 
         targeted = targeted_factory(G)
@@ -525,31 +498,10 @@ def failure_reachability(G,
             ] * repeats  # Beware here that the copy here is very shallow
 
 
-    if parallel == 'repeat':
+    if parallel == 'repeat' or parallel == 'all':
         print('Doing parallel map now.')
-        dv = get_dv()
-        with dv.sync_imports():
-            import tier_analysis
-        dv['G'] = G
-        dv['demand_nodes'] = demand_nodes
-        dv['t'] = t
-        dv['rho'] = rho
-        dv['failure_scale'] = failure_scale
-        dv['callbacks'] = callbacks
-        dv['targeted_factory'] = targeted_factory
+        client = dist.get_client()
 
-        # Define wrapper_function on the engines
-#        dv.execute("""
-#        def wrapper_function(x):
-#            global G, demand_nodes, t, rho, failure_scale, callbacks, targeted_factory
-#            return cascading_failure.failure_reachability_sweep(G=G,
-#                    rho=rho,
-#                    demand_nodes = demand_nodes,
-#                    ts = t,
-#                    failure_scale = failure_scale,
-#                    callbacks = callbacks,
-#                    targeted_factory = targeted_factory)
-#        """)
         def wrapper_function(x):
             return failure_reachability_sweep(G=G,
                     rho=rho,
@@ -560,10 +512,10 @@ def failure_reachability(G,
                     targeted_factory = targeted_factory,
                     parallel = parallel)
 
-        avgs = dv.map(wrapper_function, range(repeats))
-
+        avgs = client.map(wrapper_function, range(repeats))
+        avgs = client.gather(avgs)
     elif parallel == 'rho':
-        avgs = [failure_reachability_sweep(*args[0], parallel=True)]
+        avgs = [failure_reachability_sweep(*args[0], parallel='rho')]
     else:
         avgs = [failure_reachability_sweep(*args[0]) for _ in tqdm.tqdm(range(repeats), desc='Reachability tier', leave=False)]
     avgs = pd.concat(avgs, ignore_index=True)
@@ -740,13 +692,13 @@ def get_node_breakdown_threshold(node, G, breakdown_threshold=breakdown_threshol
         # find node in G_thin that corresponds to node in G
         try:
             node_thin = G_thin.vs.select(name=node['name'])[0]
-        except BaseException:
+        except (ValueError, IndexError):
             break  # node was deleted
 
         reachable_node_count = len(
             get_reachable_nodes(
                 node_thin.index,
-                G_thin) & terminal_nodes)
+                G_thin).union(terminal_nodes))
 
     # store number of nodes deleted
     node['Deleted count'] = len(G.vs) - len(G_thin.vs)
@@ -756,6 +708,13 @@ def get_node_breakdown_threshold(node, G, breakdown_threshold=breakdown_threshol
 
 if __name__ == '__main__':
     start_time = datetime.datetime.now().strftime('%m-%d-%Y_%H-%M-%S')
+
+    if os.name == 'posix':
+        n_cpus = len(os.sched_getaffinity(0))
+    elif os.name == 'nt':
+        n_cpus = os.cpu_count()
+    n = n_cpus - 2
+    client = dist.Client(n_workers = n)
 
     df = get_df()
     G = igraph_simple(df)
@@ -775,7 +734,7 @@ if __name__ == '__main__':
         else:
             raise ValueError("Valid values of attack_type are 'Random', 'Employee', 'Degree', 'Pagerank', and 'Pagerank transpose'")
 
-        res = compare_tiers(G, parallel = use_parallel, attack = factory)
+        res = compare_tiers(G, parallel = tiers_parallel_mode, attack = factory)
         dists = between_tier_distances(res)
         print(dists)
 
@@ -786,9 +745,24 @@ if __name__ == '__main__':
         # get nodes with at least reachable_node_threshold of reachable nodes
         nodes = G.vs.select(Tier=0)
         reachability_counts = pd.DataFrame(data=np.zeros(len(nodes)), index=nodes['name'], columns=['counts'])
+        
+        if thresholds_parallel:
+            nodes_and_graph = [(node, G) for node in nodes]
+            def parallel_reachability(node, G):
+                reachable = get_reachable_nodes(node, G)
+                return (node, len(reachable))
+            
+            res = client.map(parallel_reachability, *nodes_and_graph)
+            res = client.gather(res)
 
-        for node in nodes:
-            reachability_counts.at[node['name'], 'counts'] = len(get_reachable_nodes(node, G))
+            for node, count in res:
+                reachability_counts.at[node['name'], 'counts'] = count
+            
+            # DEBUG
+            print(reachability_counts)
+        else:
+            for node in nodes:
+                reachability_counts.at[node['name'], 'counts'] = len(get_reachable_nodes(node, G))
 
 
         reachability_counts = reachability_counts[reachability_counts['counts'] >= reachable_node_threshold] # cutoff to exclude nodes with few reachable nodes
@@ -799,31 +773,21 @@ if __name__ == '__main__':
                 (len(nodes), repeats_per_node)), index=nodes['name'], columns=list(
                 range(repeats_per_node)))
 
-        if use_parallel:
-            with ipp.Cluster(n=parallel_job_count) as rc:
-                # set up cluster
-                rc.wait_for_engines(parallel_job_count)
-                lv = rc.load_balanced_view()
-                lv.block = False
-                rc[:].use_dill()
-                rc[:].push(dict(G=G, breakdown_threshold=breakdown_threshold,
-                    thinning_ratio=thinning_ratio))
+        if thresholds_parallel:
+            def repeat_breakdown_test(node, repeat_idx):
+                res = get_node_breakdown_threshold(G.vs[node], G, breakdown_threshold, thinning_ratio)
+                return res
 
-                def repeat_breakdown_test(node, repeat_idx):
-                    res = get_node_breakdown_threshold(G.vs[node], G, breakdown_threshold, thinning_ratio)
-                    return res
+            pairs = [(v.index, i)
+                    for v,i in itertools.product(nodes, range(repeats_per_node))]
 
-                pairs = [(v.index, i)
-                        for v,i in itertools.product(nodes, range(repeats_per_node))]
+            res = client.map(repeat_breakdown_test,
+                            *zip(*pairs))
 
-                res = lv.map(repeat_breakdown_test,
-                             *zip(*pairs))
+            res = client.gather(res)
 
-                res.wait_interactive()
-                res = res.get()
-
-                for i, (v_idx, i_idx) in enumerate(pairs):
-                    thresholds.loc[G.vs[v_idx]['name'], i_idx] = res[i]
+            for i, (v_idx, i_idx) in enumerate(pairs):
+                thresholds.loc[G.vs[v_idx]['name'], i_idx] = res[i]
 
         else:
             for node in nodes:
