@@ -10,9 +10,7 @@ dependencies:
   - seaborn
   - dask
   - cachey
-  - openpyxl
-  - ca-certificates
   - certifi
-  - openssl
+  - openpyxl
   - tqdm
 prefix: C:\Users\Isaac\miniforge3\envs\sc_robustness

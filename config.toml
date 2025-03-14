@@ -1,0 +1,25 @@
+[general]
+data_file_name = 'small_med.xlsx'
+# Can equal 'Random', 'Employee', 'Degree', 'Pagerank transpose', or 'Pagerank'
+attack_type = 'Random'
+has_metadata = false
+max_tiers = 3
+
+
+[operations]
+compare_tiers = true
+get_thresholds = false
+
+
+[parallel]
+# Can equal 'auto', 'repeat', 'rho', 'all', or false
+tiers_parallel_mode = false
+# Can equal true or false
+thresholds_parallel = true
+
+
+[breakdown_thresholds]
+reachable_node_threshold = 500
+breakdown_threshold = 0.80
+thinning_ratio = 0.005
+repeats_per_node = 20

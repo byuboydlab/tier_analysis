@@ -1,8 +1,7 @@
 import os
 import math
 import datetime
-import pickle
-import dill
+import tomllib
 import itertools
 import random
 import tqdm
@@ -15,26 +14,15 @@ import dask.distributed as dist
 from copy import deepcopy
 
 
-# User-set parameters
-data_file_name = 'small_small_med.xlsx'
-attack_type = 'Random'   # Can equal 'Random', 'Employee', 'Degree', 'Pagerank transpose', or 'Pagerank'
-should_compare_tiers = False
-should_get_thresholds = True
-tiers_parallel_mode = 'rho'   # Can equal 'auto', 'repeat', 'rho', 'all', or None
-thresholds_parallel = True   # Can equal True or False
-has_metadata = False
-max_tiers = 3
-reachable_node_threshold = 500
-breakdown_threshold = 0.80
-thinning_ratio = 0.005
-repeats_per_node = 20
+with open('config.toml', 'rb') as config_file:
+    config = tomllib.load(config_file)
 
 
 def get_df(extra_tiers=False):
     global file_name
 
     files = list(os.scandir())
-    files = [x for x in files if x.is_file() and x.name == data_file_name]
+    files = [x for x in files if x.is_file() and x.name == config['general']['data_file_name']]
     if len(files) == 0:
         raise Exception('No files match the data file name given!')
     else:
@@ -266,7 +254,7 @@ def random_thinning_factory(G):
 
     uniques = dict()
     perm = dict()
-    if has_metadata:
+    if config['general']['has_metadata']:
         for failure_scale in ['country', 'industry', 'country-industry']:
             uniques[failure_scale] = list(set(G.vs[failure_scale]))
             perm[failure_scale] = uniques[failure_scale]
@@ -476,15 +464,12 @@ def failure_reachability(G,
                          prefix='',
                          demand_nodes=None):
 
-    global data_file_name, start_time
+    global start_time
 
     # Check that G is an igraph
     if not isinstance(G, ig.Graph):
         raise ValueError('G must be an igraph.Graph')
 
-    if parallel == True:
-        print("parallel==True is being interpreted as 'repeat'")
-        parallel = 'repeat'
 
     if parallel == 'auto':
         parallel = 'repeat' if repeats > 1 else 'rho'
@@ -529,7 +514,7 @@ def failure_reachability(G,
             + '_range_' + str(rho[0]) + '_' + str(rho[-1])\
             + '_repeats_' + str(repeats)\
             + (('software_excluded' if G_has_no_software_flag else 'software_included') if G_has_no_software_flag is not None else '')\
-            + data_file_name.replace('.xlsx', '') + '_' + start_time
+            + config['general']['data_file_name'].replace('.xlsx', '') + '_' + start_time
         failure_plot(avgs[avgs.columns[:-2]],
                      plot_title=plot_title,
                      save_only=save_only,
@@ -562,7 +547,7 @@ def compare_tiers_plot(res,
                        attack=random_thinning_factory,
                        save=True):
 
-    global data_file_name, start_time
+    global start_time
 
     rho = "Percent " + get_plural(failure_scale) + " remaining"
     ax = sns.lineplot(
@@ -578,7 +563,7 @@ def compare_tiers_plot(res,
             + '_' + attack.description.replace(' ', '_').lower()\
             + '_range_' + str(rho[0]) + '_' + str(rho[-1])\
             + '_tiers_' + str(res['Tier count'].min()) + '_' + str(res['Tier count'].max())\
-            + '_' + data_file_name.replace('.xlsx', '') + '_' + start_time
+            + '_' + config['general']['data_file_name'].replace('.xlsx', '') + '_' + start_time
         plt.savefig(fname + '.svg')
 
 
@@ -589,7 +574,7 @@ def compare_tiers(G,
                   save=True,
                   attack=random_thinning_factory,
                   failure_scale='firm',
-                  tier_range=range(1, max_tiers + 1),
+                  tier_range=range(1, config['general']['max_tiers'] + 1),
                   parallel='auto'):
     """
     This function is used to compare the effect of different tier counts on the
@@ -599,7 +584,7 @@ def compare_tiers(G,
     res: a dataframe with the results of the reachability for each tier
     """
 
-    global data_file_name, start_time
+    global start_time
 
     G = deepcopy(G) # We don't want to modify the original graph
     res = pd.DataFrame() # Final results
@@ -624,7 +609,7 @@ def compare_tiers(G,
     # Save the results
     fname = 'compare_tiers_' + failure_scale + '_' + \
         attack.description.replace(' ', '_').lower()\
-        + '_' + data_file_name.replace('.xlsx', '') + '_' + start_time
+        + '_' + config['general']['data_file_name'].replace('.xlsx', '') + '_' + start_time
     res.to_excel(fname + '.xlsx')
 
     if plot:
@@ -648,7 +633,7 @@ def between_tier_distances(res, rho = "Percent firms remaining", attack=random_t
     Returns:
     - DataFrame with two columns: 'Tier count' and 'Distance'.
     """
-    global data_file_name, start_time
+    global start_time
 
     means = {tier_count: res[res['Tier count'] == tier_count].groupby(rho)['Avg. percent end suppliers reachable'].mean()
              for tier_count in res['Tier count'].unique()}
@@ -661,13 +646,13 @@ def between_tier_distances(res, rho = "Percent firms remaining", attack=random_t
     distances_df = pd.DataFrame(list(distances.items()), columns=['Tier count', 'Distance'])
 
     fname = 'between_tier_distances_' + failure_scale + '_' + \
-        attack.description.replace(' ', '_').lower() + '_' + data_file_name.replace('.xlsx', '') + '_' + start_time + '.xlsx'
+        attack.description.replace(' ', '_').lower() + '_' + config['general']['data_file_name'].replace('.xlsx', '') + '_' + start_time + '.xlsx'
     distances_df.to_excel(fname)
 
     return distances_df
 
 
-def get_node_breakdown_threshold(node, G, breakdown_threshold=breakdown_threshold, thinning_ratio=thinning_ratio):
+def get_node_breakdown_threshold(node, G, breakdown_threshold=config['breakdown_thresholds']['breakdown_threshold'], thinning_ratio=config['breakdown_thresholds']['thinning_ratio']):
 
     # if node is int, convert to vertex
     if isinstance(node, int):
@@ -709,36 +694,39 @@ def get_node_breakdown_threshold(node, G, breakdown_threshold=breakdown_threshol
 if __name__ == '__main__':
     start_time = datetime.datetime.now().strftime('%m-%d-%Y_%H-%M-%S')
 
-    if os.name == 'posix':
-        n_cpus = len(os.sched_getaffinity(0))
-    elif os.name == 'nt':
-        n_cpus = os.cpu_count()
-    n = n_cpus - 2
-    client = dist.Client(n_workers = n)
+    if config['parallel']['tiers_parallel_mode'] or config['parallel']['thresholds_parallel']:
+        if os.name == 'posix':
+            n_cpus = len(os.sched_getaffinity(0))
+        elif os.name == 'nt':
+            n_cpus = os.cpu_count()
+        n = n_cpus - 2
+        client = dist.Client(n_workers = n)
+    else:
+        client = None
 
     df = get_df()
     G = igraph_simple(df)
     get_node_tier_from_edge_tier(G)
 
-    if should_compare_tiers:
-        if attack_type == 'Random':
+    if config['operations']['compare_tiers']:
+        if config['general']['attack_type'] == 'Random':
             factory = random_thinning_factory
-        elif attack_type == 'Employee':
+        elif config['general']['attack_type'] == 'Employee':
             factory = get_employee_attack
-        elif attack_type == 'Degree':
+        elif config['general']['attack_type'] == 'Degree':
             factory = get_degree_attack
-        elif attack_type == 'Pagerank':
+        elif config['general']['attack_type'] == 'Pagerank':
             factory = get_pagerank_attack_no_transpose
-        elif attack_type == 'Pagerank transpose':
+        elif config['general']['attack_type'] == 'Pagerank transpose':
             factory = get_pagerank_attack
         else:
             raise ValueError("Valid values of attack_type are 'Random', 'Employee', 'Degree', 'Pagerank', and 'Pagerank transpose'")
 
-        res = compare_tiers(G, parallel = tiers_parallel_mode, attack = factory)
+        res = compare_tiers(G, parallel = config['parallel']['tiers_parallel_mode'], attack = factory)
         dists = between_tier_distances(res)
         print(dists)
 
-    if should_get_thresholds:
+    if config['operations']['get_thresholds']:
 
         itercount = 0
 
@@ -746,40 +734,25 @@ if __name__ == '__main__':
         nodes = G.vs.select(Tier=0)
         reachability_counts = pd.DataFrame(data=np.zeros(len(nodes)), index=nodes['name'], columns=['counts'])
         
-        if thresholds_parallel:
-            nodes_and_graph = [(node, G) for node in nodes]
-            def parallel_reachability(node, G):
-                reachable = get_reachable_nodes(node, G)
-                return (node, len(reachable))
-            
-            res = client.map(parallel_reachability, *nodes_and_graph)
-            res = client.gather(res)
-
-            for node, count in res:
-                reachability_counts.at[node['name'], 'counts'] = count
-            
-            # DEBUG
-            print(reachability_counts)
-        else:
-            for node in nodes:
-                reachability_counts.at[node['name'], 'counts'] = len(get_reachable_nodes(node, G))
+        for node in nodes:
+            reachability_counts.at[node['name'], 'counts'] = len(get_reachable_nodes(node, G))
 
 
-        reachability_counts = reachability_counts[reachability_counts['counts'] >= reachable_node_threshold] # cutoff to exclude nodes with few reachable nodes
+        reachability_counts = reachability_counts[reachability_counts['counts'] >= config['breakdown_thresholds']['reachable_node_threshold']] # cutoff to exclude nodes with few reachable nodes
         nodes = nodes.select(name_in=reachability_counts.index)
 
         thresholds = pd.DataFrame(
             np.zeros(
-                (len(nodes), repeats_per_node)), index=nodes['name'], columns=list(
-                range(repeats_per_node)))
+                (len(nodes), config['breakdown_thresholds']['repeats_per_node'])), index=nodes['name'], columns=list(
+                range(config['breakdown_thresholds']['repeats_per_node'])))
 
-        if thresholds_parallel:
+        if config['parallel']['thresholds_parallel']:
             def repeat_breakdown_test(node, repeat_idx):
-                res = get_node_breakdown_threshold(G.vs[node], G, breakdown_threshold, thinning_ratio)
+                res = get_node_breakdown_threshold(G.vs[node], G, config['breakdown_thresholds']['breakdown_threshold'], config['breakdown_thresholds']['thinning_ratio'])
                 return res
 
             pairs = [(v.index, i)
-                    for v,i in itertools.product(nodes, range(repeats_per_node))]
+                    for v,i in itertools.product(nodes, range(config['breakdown_thresholds']['repeats_per_node']))]
 
             res = client.map(repeat_breakdown_test,
                             *zip(*pairs))
@@ -794,13 +767,13 @@ if __name__ == '__main__':
                 # print progress bar
                 print('Progress: {0:.2f}%'.format(
                     100 * itercount / len(nodes)), end='\r')
-                for i in range(repeats_per_node):
+                for i in range(config['breakdown_thresholds']['repeats_per_node']):
                     thresholds.loc[node['name'], i] = get_node_breakdown_threshold(
-                        node, G, breakdown_threshold, thinning_ratio)
+                        node, G, config['breakdown_thresholds']['breakdown_threshold'], config['breakdown_thresholds']['thinning_ratio'])
                 itercount += 1
 
-        fname = 'breakdown_thresholds_{0:.2f}_{1:.3f}'.format(breakdown_threshold, thinning_ratio)
-        fname = fname + '_' + data_file_name.replace('.xlsx', '') + '_' + start_time + '.xlsx'
+        fname = 'breakdown_thresholds_{0:.2f}_{1:.3f}'.format(config['breakdown_thresholds']['breakdown_threshold'], config['breakdown_thresholds']['thinning_ratio'])
+        fname = fname + '_' + config['general']['data_file_name'].replace('.xlsx', '') + '_' + start_time + '.xlsx'
 
         thresholds.to_excel(fname)
 
