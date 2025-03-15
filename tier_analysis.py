@@ -695,6 +695,9 @@ def get_node_breakdown_threshold(node, G, breakdown_threshold=config['breakdown_
 if __name__ == '__main__':
     start_time = datetime.datetime.now().strftime('%m-%d-%Y_%H-%M-%S')
 
+    if len(sys.argv) != 2:
+        raise IndexError(f'One argument was expected, but {len(sys.argv)} were given.')
+
     if config['parallel']['tiers_parallel_mode'] or config['parallel']['thresholds_parallel']:
         if os.name == 'posix':
             n_cpus = len(os.sched_getaffinity(0))
