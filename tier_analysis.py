@@ -1,4 +1,5 @@
 import os
+import sys
 import math
 import datetime
 import tomllib
@@ -22,7 +23,7 @@ def get_df(extra_tiers=False):
     global file_name
 
     files = list(os.scandir())
-    files = [x for x in files if x.is_file() and x.name == config['general']['data_file_name']]
+    files = [x for x in files if x.is_file() and x.name == sys.argv[1]]
     if len(files) == 0:
         raise Exception('No files match the data file name given!')
     else:
@@ -514,7 +515,7 @@ def failure_reachability(G,
             + '_range_' + str(rho[0]) + '_' + str(rho[-1])\
             + '_repeats_' + str(repeats)\
             + (('software_excluded' if G_has_no_software_flag else 'software_included') if G_has_no_software_flag is not None else '')\
-            + config['general']['data_file_name'].replace('.xlsx', '') + '_' + start_time
+            + sys.argv[1].replace('.xlsx', '') + '_' + start_time
         failure_plot(avgs[avgs.columns[:-2]],
                      plot_title=plot_title,
                      save_only=save_only,
@@ -563,7 +564,7 @@ def compare_tiers_plot(res,
             + '_' + attack.description.replace(' ', '_').lower()\
             + '_range_' + str(rho[0]) + '_' + str(rho[-1])\
             + '_tiers_' + str(res['Tier count'].min()) + '_' + str(res['Tier count'].max())\
-            + '_' + config['general']['data_file_name'].replace('.xlsx', '') + '_' + start_time
+            + '_' + sys.argv[1].replace('.xlsx', '') + '_' + start_time
         plt.savefig(fname + '.svg')
 
 
@@ -609,7 +610,7 @@ def compare_tiers(G,
     # Save the results
     fname = 'compare_tiers_' + failure_scale + '_' + \
         attack.description.replace(' ', '_').lower()\
-        + '_' + config['general']['data_file_name'].replace('.xlsx', '') + '_' + start_time
+        + '_' + sys.argv[1].replace('.xlsx', '') + '_' + start_time
     res.to_excel(fname + '.xlsx')
 
     if plot:
@@ -646,7 +647,7 @@ def between_tier_distances(res, rho = "Percent firms remaining", attack=random_t
     distances_df = pd.DataFrame(list(distances.items()), columns=['Tier count', 'Distance'])
 
     fname = 'between_tier_distances_' + failure_scale + '_' + \
-        attack.description.replace(' ', '_').lower() + '_' + config['general']['data_file_name'].replace('.xlsx', '') + '_' + start_time + '.xlsx'
+        attack.description.replace(' ', '_').lower() + '_' + sys.argv[1].replace('.xlsx', '') + '_' + start_time + '.xlsx'
     distances_df.to_excel(fname)
 
     return distances_df
@@ -773,7 +774,7 @@ if __name__ == '__main__':
                 itercount += 1
 
         fname = 'breakdown_thresholds_{0:.2f}_{1:.3f}'.format(config['breakdown_thresholds']['breakdown_threshold'], config['breakdown_thresholds']['thinning_ratio'])
-        fname = fname + '_' + config['general']['data_file_name'].replace('.xlsx', '') + '_' + start_time + '.xlsx'
+        fname = fname + '_' + sys.argv[1].replace('.xlsx', '') + '_' + start_time + '.xlsx'
 
         thresholds.to_excel(fname)
 
