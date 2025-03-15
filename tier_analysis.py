@@ -15,7 +15,7 @@ import dask.distributed as dist
 from copy import deepcopy
 
 
-with open('config.toml', 'rb') as config_file:
+with open(sys.argv[2], 'rb') as config_file:
     config = tomllib.load(config_file)
 
 
@@ -519,7 +519,7 @@ def failure_reachability(G,
         failure_plot(avgs[avgs.columns[:-2]],
                      plot_title=plot_title,
                      save_only=save_only,
-                     filename=fname + '.svg')
+                     filename= results_dir + fname + '.svg')
 
     return avgs
 
@@ -565,7 +565,7 @@ def compare_tiers_plot(res,
             + '_range_' + str(rho[0]) + '_' + str(rho[-1])\
             + '_tiers_' + str(res['Tier count'].min()) + '_' + str(res['Tier count'].max())\
             + '_' + sys.argv[1].replace('.xlsx', '') + '_' + start_time
-        plt.savefig(fname + '.svg')
+        plt.savefig(results_dir + fname + '.svg')
 
 
 def compare_tiers(G,
@@ -611,7 +611,7 @@ def compare_tiers(G,
     fname = 'compare_tiers_' + failure_scale + '_' + \
         attack.description.replace(' ', '_').lower()\
         + '_' + sys.argv[1].replace('.xlsx', '') + '_' + start_time
-    res.to_excel(fname + '.xlsx')
+    res.to_excel(results_dir + fname + '.xlsx')
 
     if plot:
         compare_tiers_plot(res, rho, failure_scale, attack, save)
@@ -648,7 +648,7 @@ def between_tier_distances(res, rho = "Percent firms remaining", attack=random_t
 
     fname = 'between_tier_distances_' + failure_scale + '_' + \
         attack.description.replace(' ', '_').lower() + '_' + sys.argv[1].replace('.xlsx', '') + '_' + start_time + '.xlsx'
-    distances_df.to_excel(fname)
+    distances_df.to_excel(results_dir + fname)
 
     return distances_df
 
@@ -695,8 +695,18 @@ def get_node_breakdown_threshold(node, G, breakdown_threshold=config['breakdown_
 if __name__ == '__main__':
     start_time = datetime.datetime.now().strftime('%m-%d-%Y_%H-%M-%S')
 
-    if len(sys.argv) != 2:
-        raise IndexError(f'One argument was expected, but {len(sys.argv)} were given.')
+    if len(sys.argv) != 4:
+        raise IndexError(f'3 arguments were expected, but {len(sys.argv) - 1} were given.')
+    
+    results_dir = sys.argv[3]
+
+    if results_dir[-1] != '/' and os.name == 'posix':
+        results_dir += '/'
+    elif results_dir[-1] != '\\' and results_dir[-1] != '/' and os.name == 'nt':
+        results_dir += '/'
+
+    if not os.path.exists(results_dir):
+        os.mkdir(results_dir)
 
     if config['parallel']['tiers_parallel_mode'] or config['parallel']['thresholds_parallel']:
         if os.name == 'posix':
@@ -779,7 +789,7 @@ if __name__ == '__main__':
         fname = 'breakdown_thresholds_{0:.2f}_{1:.3f}'.format(config['breakdown_thresholds']['breakdown_threshold'], config['breakdown_thresholds']['thinning_ratio'])
         fname = fname + '_' + sys.argv[1].replace('.xlsx', '') + '_' + start_time + '.xlsx'
 
-        thresholds.to_excel(fname)
+        thresholds.to_excel(results_dir + fname)
 
         print('\n')
 
