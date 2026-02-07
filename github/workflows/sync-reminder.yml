@@ -1,0 +1,16 @@
+name: notify-tier_analysis-changes
+on:
+  push:
+    paths:
+      - tier_analysis.py
+jobs:
+  send-notification:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send Discord notification
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_SYNC_REMINDER_WEBHOOK }}
+        uses: "Ilshidur/action-discord@0.4.0"
+        with:
+          args: 'tier_analysis.py has been changed in the tier-analysis repo! Make sure to check for changes that need to be copied over to the tier-analysis-app repo.\n@IsaacUtah'
+      
