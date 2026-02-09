@@ -36,4 +36,5 @@ us_protected
 *.pkl
 *.xlsx
 *.svg
-.vscode
+.vscode/
+.mypy_cache/
