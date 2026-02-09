@@ -73,7 +73,6 @@ def get_demand_nodes(G):
 
 
 def igraph_simple(edge_df):
-
     firm_list = pd.concat((edge_df["Source"], edge_df["Target"])).unique()
     G = ig.Graph(directed=True)
     G.add_vertices(firm_list)
@@ -87,7 +86,6 @@ def igraph_simple(edge_df):
 
 
 def get_node_tier_from_edge_tier(G):
-
     # iterate through the nodes and assign each node the minimum tier of the
     # edges leaving it
     for node in G.vs:
