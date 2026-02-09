@@ -5,6 +5,7 @@ import os
 import random
 import sys
 from copy import deepcopy
+from typing import Any, Callable, Literal, cast
 
 import dask.distributed as dist
 import igraph as ig
@@ -25,24 +26,15 @@ with open(sys.argv[2], "rb") as config_file:
     config = tomllib.load(config_file)
 
 
-def get_df(extra_tiers=False):
-    global file_name
-
-    files = list(os.scandir())
-    files = [x for x in files if x.is_file() and x.name == sys.argv[1]]
-    if len(files) == 0:
-        raise Exception("No files match the data file name given!")
-    else:
-        file_name = files[0]
-
-    df = pd.read_excel(file_name, sheet_name="Sheet1", engine="openpyxl")
+def get_df(file_name: str, extra_tiers: bool = False) -> pd.DataFrame:
+    df: pd.DataFrame = pd.read_excel(file_name, sheet_name="Sheet1", engine="openpyxl")
     df = df.drop_duplicates(ignore_index=True)
 
     try:
         df = df[df["Relationship Type"] == "Supplier"]
         df.reset_index()
-    except BaseException:
-        pass
+    except KeyError as e:
+        print(f"Ignoring KeyError {e}")
 
     # resolve NaNs for better typing
     for col in [
@@ -57,8 +49,8 @@ def get_df(extra_tiers=False):
     ]:
         try:  # in case these columns are not there
             df[col] = df[col].astype(str)
-        except BaseException:
-            pass
+        except KeyError as e:
+            print(f"Ignoring KeyError {e}")
     for col in [
         "Source Market Cap",
         "Target Market Cap",
@@ -70,8 +62,8 @@ def get_df(extra_tiers=False):
         try:  # in case these columns are not there
             df.loc[df[col] == "(Invalid Identifier)", col] = math.nan
             df[col] = df[col].astype(float)
-        except BaseException:
-            pass
+        except KeyError as e:
+            print(f"Ignoring KeyError {e}")
 
     return df
 
@@ -835,7 +827,7 @@ if __name__ == "__main__":
     else:
         client = None
 
-    df = get_df()
+    df = get_df(sys.argv[1])
     G = igraph_simple(df)
     get_node_tier_from_edge_tier(G)
 
